@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "das-execution-finality"
+version = "0.1.0"
+description = "Vendor-neutral reference implementation of attestation-bound execution finality"
+requires-python = ">=3.11"
+dependencies = ["cryptography>=46,<47"]
+
+[project.scripts]
+finality = "finality.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

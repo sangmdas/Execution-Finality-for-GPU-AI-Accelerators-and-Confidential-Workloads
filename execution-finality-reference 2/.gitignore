@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.pem
+*.sqlite3*
+test-vectors.json
+benchmark-results.txt
+dist/
+*.egg-info/
+
