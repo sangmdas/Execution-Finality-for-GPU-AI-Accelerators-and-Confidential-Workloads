@@ -1,0 +1,23 @@
+{
+  "act_digest_hex": "ffa6ce063ab45b6cea3b212070144d284b64fc13d97b9ea6a6b440af7555b6fd",
+  "body_utf8": "{\"destination\":\"account-B\",\"amount\":100,\"currency\":\"USD\"}",
+  "candidate_act_cbor_hex": "a701010264504f535403707061796d656e74732e6578616d706c6504692f7472616e73666572055820da11768da5347453632d3bf81ecf959a5b632eb97eb4e4842b71380a5e0c07fc06782275726e3a6578616d706c653a66696e616c6974792d73696e6b3a7061796d656e7473077374782d30313233343536373839616263646566",
+  "eat_base64url": "hFGiAScETGVhdC12ZWN0b3ItMaBYpqgBdHVybjpleGFtcGxlOmF0dGVzdGVyBBprSdMsBhprSdIAClgYIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiGQEAWCC3Ct-D7ssjcTpIl4u4q8SkAC06LiGO7VeV32Ml93mDhBkD6WthaS1hZ2VudC00NxkD6lggEREREREREREREREREREREREREREREREREREREREREREZA-trc2VjdXJlLWJvb3RYQAxbgn4aIgMFIbDNnzR8R0zWzt8eFf2BURmOREaWxkqfkuaSJw6sKhsY2JbHrADWpdxHgI5JXEQ-v-mCCj7A0AE",
+  "eat_public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=\n-----END PUBLIC KEY-----\n",
+  "execution_handle_base64url": "hFGiAScETGVmdi12ZWN0b3ItMaBYt6kBAQJYIP-mzgY6tFts6jshIHAUTShLZPwT2Xuepqa0QK91Vbb9A2thaS1hZ2VudC00NwRYIGFw_VzH63Yxj7OEL_xMODGIsAXEmFX_Ee4pq8ZmXYKLBXgidXJuOmV4YW1wbGU6ZmluYWxpdHktc2luazpwYXltZW50cwYaa0nSAAcaa0nSHghYGDMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMwlzdHgtMDEyMzQ1Njc4OWFiY2RlZlhA6UCA1LoXVwRGAttcoJzfD0VHepImwxfm0QlgH8G92kL6SjfE6aWB5UxGOR3PdOb3c4xq1nyhalv64Xlr-pXzAg",
+  "expected_results": {
+    "V10_unacceptable_EAT": "no_handle_issued",
+    "V1_exact_unused_handle": "accept_once",
+    "V2_missing_handle": "reject",
+    "V3_changed_amount": "act_mismatch",
+    "V4_changed_destination": "act_mismatch",
+    "V5_changed_method_or_path": "reject_or_act_mismatch",
+    "V6_expired_handle": "expired_handle",
+    "V7_second_use": "replay_detected",
+    "V8_wrong_audience": "act_mismatch",
+    "V9_modified_signature": "reject"
+  },
+  "fixed_time": 1800000000,
+  "handle_public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAgTl3Dqh9F19Wo1Rmw0x+zMuNipG07jeiXfYPW4/Js5Q=\n-----END PUBLIC KEY-----\n",
+  "profile": 1
+}

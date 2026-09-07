@@ -1,0 +1,2606 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rfc docName="draft-das-rats-attestation-bnd-execution-finality-01" category="info" ipr="trust200902" submissionType="IETF" version="3" tocInclude="true" tocDepth="4">
+  <front>
+    <title abbrev="Attestation-Bound Execution Finality">Attestation-Bound Execution Finality for AI Accelerators and Confidential Workloads</title>
+    <seriesInfo name="Internet-Draft" value="draft-das-rats-attestation-bnd-execution-finality-01"/>
+    <author fullname="Sangam Kumar Das" initials="S." surname="Das">
+      <organization>Independent Inventor and Researcher</organization>
+      <address>
+        <postal>
+          <city>Balasore</city>
+          <region>Odisha</region>
+          <code>756001</code>
+          <country>India</country>
+        </postal>
+        <email>info@sangamdas.com</email>
+      </address>
+    </author>
+    <date year="2026" month="September"/>
+    <abstract>
+      <t>Remote attestation can establish evidence about the hardware, firmware, software, configuration, and execution environment associated with a workload.  In heterogeneous confidential-computing environments, this trust assessment can extend across CPUs, confidential virtual machines, GPUs, AI accelerators, DPUs, SmartNICs, and other trusted execution components.</t>
+      <t>An increasingly important class of workloads, however, does not merely compute data.  AI agents and autonomous workloads can generate consequential operations such as API invocations, storage mutations, network configuration changes, infrastructure-control commands, financial instructions, device operations, and cross-workload requests.</t>
+      <t>An acceptable Attestation Result supplies trust information to a Relying Party; it is not, without an application-defined authorization step, a decision on the admissibility of each operation later emitted by the attested workload.</t>
+      <t>This document describes an attestation-bound execution-finality architecture in which a consequential operation first exists as a Candidate Act in a non-effective state.  Before that act can acquire external effect, its relevant parameters are cryptographically bound to validation context that can include Attestation Results, workload identity, execution context, policy, authorization scope, freshness information, and other application-specific evidence.</t>
+      <t>A designated Finality Sink verifies the required binding at or before the boundary at which the Candidate Act would first acquire external effect.</t>
+      <t>The resulting separation is between appraisal of the execution environment and authorization of a concrete operation at its effectuation boundary.</t>
+      <t>The architecture is intended to complement, rather than replace, Remote ATtestation procedureS (RATS), Entity Attestation Token (EAT) <xref target="RFC9711"/>, workload-identity systems, confidential computing, Trusted Execution Environments (TEEs), accelerator attestation, and existing authorization mechanisms.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>Modern computing systems increasingly combine heterogeneous execution components.</t>
+      <t>A single workload may involve:</t>
+      <ul>
+        <li><t>a CPU;</t></li>
+        <li><t>a confidential virtual machine;</t></li>
+        <li><t>one or more GPUs or other AI accelerators;</t></li>
+        <li><t>a DPU or SmartNIC;</t></li>
+        <li><t>containerized or orchestrated workloads;</t></li>
+        <li><t>workload-identity credentials;</t></li>
+        <li><t>service-mesh components;</t></li>
+        <li><t>remote storage;</t></li>
+        <li><t>external APIs;</t></li>
+        <li><t>high-speed accelerator fabrics;</t></li>
+        <li><t>Ethernet or InfiniBand networks; and</t></li>
+        <li><t>cloud or hyperscale control-plane infrastructure.</t></li>
+      </ul>
+      <t>Remote attestation provides mechanisms through which claims about such environments can be appraised.</t>
+      <t>The RATS architecture <xref target="RFC9334"/> defines Evidence, Verifiers, Attestation Results, and Relying Parties.  A Relying Party can use Attestation Results when making application-specific decisions, including authorization decisions.</t>
+      <t>Composite attestation further permits trust assessments to incorporate multiple components of a heterogeneous confidential-computing environment.</t>
+      <t>These mechanisms answer an important question: what properties can a relying party establish about the environment involved in computation?</t>
+      <t>A distinct question becomes increasingly important as workloads become agentic: what causes one specific operation produced by that workload to become externally effective?</t>
+      <t>Consider an attested AI workload that generates:</t>
+      <figure>
+        <artwork type="text">
+POST /payment
+
+destination = account-B
+amount      = 50000
+currency    = USD
+</artwork>
+      </figure>
+      <t>Attestation may establish important properties of the execution components.  Whether the operation above is admissible remains an application-specific decision that can depend on its method, target, arguments, current policy, and resource state.</t>
+      <t>The same observation applies to an AI workload generating:</t>
+      <figure>
+        <artwork type="text">
+DELETE production-database
+</artwork>
+      </figure>
+      <t>or:</t>
+      <figure>
+        <artwork type="text">
+modify_firewall(rule-X)
+</artwork>
+      </figure>
+      <t>or:</t>
+      <figure>
+        <artwork type="text">
+deploy(image-Y, production)
+</artwork>
+      </figure>
+      <t>or:</t>
+      <figure>
+        <artwork type="text">
+send(message-M, recipient-R)
+</artwork>
+      </figure>
+      <t>or:</t>
+      <figure>
+        <artwork type="text">
+open_valve(device-D, 80-percent)
+</artwork>
+      </figure>
+      <t>or:</t>
+      <figure>
+        <artwork type="text">
+transfer_control(workload-A, workload-B)
+</artwork>
+      </figure>
+      <t>The environment may be fully attested and operating as expected.  This document addresses a later transition:</t>
+      <ol>
+        <li><t>computation of a proposed operation; and</t></li>
+        <li><t>acquisition of authority by that operation to produce an external consequence.</t></li>
+      </ol>
+      <t>This document calls the second transition execution finality.</t>
+      <t>The architecture therefore separates:</t>
+      <figure>
+        <artwork type="text">
+Computation
+     |
+     v
+Candidate Act
+     |
+     |   non-effective
+     v
+Validation / authorization binding
+     |
+     v
+Finality Sink
+     |
+     |   effective
+     v
+External Effect
+</artwork>
+      </figure>
+      <t>The design does not require a particular CPU, GPU, accelerator, TEE, cloud platform, network fabric, or authorization protocol.</t>
+    </section>
+    <section anchor="motivation">
+      <name>Motivation</name>
+      <section anchor="from-computational-trust-to-consequential-authority">
+        <name>From Computational Trust to Consequential Authority</name>
+        <t>Confidential computing and remote attestation provide increasingly strong mechanisms for establishing trust in the environments where workloads execute.</t>
+        <t>AI workloads introduce a related but different problem.</t>
+        <t>A model can generate outputs that are interpreted as commands.</t>
+        <t>An AI inference result may become:</t>
+        <ul>
+          <li><t>an RPC invocation;</t></li>
+          <li><t>an HTTP request;</t></li>
+          <li><t>a database mutation;</t></li>
+          <li><t>a network packet with control semantics;</t></li>
+          <li><t>a cloud-management request;</t></li>
+          <li><t>a payment instruction;</t></li>
+          <li><t>an industrial command;</t></li>
+          <li><t>an operating-system action; or</t></li>
+          <li><t>an instruction to another autonomous workload.</t></li>
+        </ul>
+        <t>The system therefore needs to distinguish an output that has merely been computed from an operation that has become authorized for consequence.</t>
+        <t>This distinction is especially relevant where a workload may be:</t>
+        <ul>
+          <li><t>probabilistic;</t></li>
+          <li><t>dynamically composed;</t></li>
+          <li><t>controlled by changing prompts or context;</t></li>
+          <li><t>invoking external tools;</t></li>
+          <li><t>processing untrusted input;</t></li>
+          <li><t>operating across trust domains; or</t></li>
+          <li><t>acting autonomously after initial authorization.</t></li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="scope">
+      <name>Scope</name>
+      <t>This document describes an architecture for binding a consequential Candidate Act to validation evidence before that act acquires external effect.</t>
+      <t>The architecture applies to environments including, but not limited to:</t>
+      <ul>
+        <li><t>confidential AI inference;</t></li>
+        <li><t>GPU and AI-accelerator workloads;</t></li>
+        <li><t>confidential virtual machines;</t></li>
+        <li><t>CPU-GPU composite trusted environments;</t></li>
+        <li><t>cloud and hyperscale AI infrastructure;</t></li>
+        <li><t>DPUs and SmartNICs;</t></li>
+        <li><t>workload-to-workload operations;</t></li>
+        <li><t>agentic AI systems;</t></li>
+        <li><t>service meshes;</t></li>
+        <li><t>API gateways;</t></li>
+        <li><t>storage systems;</t></li>
+        <li><t>cloud control planes;</t></li>
+        <li><t>network control planes;</t></li>
+        <li><t>distributed computing infrastructure; and</t></li>
+        <li><t>edge and device execution.</t></li>
+      </ul>
+      <t>This is an architectural document, not a Candidate Act encoding or execution-authorization protocol.  It neither changes RATS roles nor defines application policy, accelerator behavior, or transport operation.  Validation may use hardware-protected or software enforcement, and the validating function may be colocated with or separated from the effectuation boundary.</t>
+    </section>
+    <section anchor="non-goals">
+      <name>Non-Goals</name>
+      <t>The following are explicitly outside the scope of this architecture.</t>
+      <section anchor="replacing-rats">
+        <name>Replacing RATS</name>
+        <t>This architecture does not redefine Evidence, Verifiers, Attestation Results, or the Relying Party model defined by RATS.</t>
+        <t>Attestation Results can instead become inputs to execution-finality validation.</t>
+      </section>
+      <section anchor="declaring-attestation-insufficient">
+        <name>Declaring Attestation Insufficient</name>
+        <t>This document does not assert that remote attestation is incomplete for its defined purpose.</t>
+        <t>Rather, it addresses an additional lifecycle stage: binding relevant trust and authorization information to a concrete consequential operation.</t>
+      </section>
+      <section anchor="replacing-oauth-or-workload-identity">
+        <name>Replacing OAuth or Workload Identity</name>
+        <t>Existing identity and authorization mechanisms can provide inputs to the architecture.</t>
+        <t>A workload credential, access token, workload identity, proof token, authorization detail, or other credential can form part of the validation context.</t>
+      </section>
+      <section anchor="mandating-hardware">
+        <name>Mandating Hardware</name>
+        <t>A deployment may use:</t>
+        <ul>
+          <li><t>a TEE;</t></li>
+          <li><t>secure enclave;</t></li>
+          <li><t>HSM;</t></li>
+          <li><t>TPM-backed environment;</t></li>
+          <li><t>confidential VM;</t></li>
+          <li><t>DPU;</t></li>
+          <li><t>SmartNIC;</t></li>
+          <li><t>kernel enforcement;</t></li>
+          <li><t>hypervisor;</t></li>
+          <li><t>trusted gateway; or</t></li>
+          <li><t>combinations of these mechanisms.</t></li>
+        </ul>
+        <t>The required property is enforcement of the non-effective-to-effective transition, not a particular implementation technology.</t>
+      </section>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+      <section anchor="candidate-act">
+        <name>Candidate Act</name>
+        <t>A Candidate Act is a concrete operation that has been generated, selected, prepared, or requested but has not yet been permitted to acquire the external consequence represented by that operation.</t>
+        <t>Examples include:</t>
+        <figure>
+          <artwork type="text">
+HTTP method + URI + body
+RPC method + arguments
+payment destination + amount
+database operation + object
+network-control operation + parameters
+device command + target + state
+cloud operation + resource identifier
+</artwork>
+        </figure>
+        <t>A Candidate Act is not merely an abstract user intent.</t>
+        <t>It represents the concrete operation proposed for effectuation.</t>
+      </section>
+      <section anchor="non-effective-state">
+        <name>Non-Effective State</name>
+        <t>A Non-Effective State is a state in which a Candidate Act may be:</t>
+        <ul>
+          <li><t>generated;</t></li>
+          <li><t>parsed;</t></li>
+          <li><t>transformed;</t></li>
+          <li><t>queued;</t></li>
+          <li><t>simulated;</t></li>
+          <li><t>inspected;</t></li>
+          <li><t>hashed;</t></li>
+          <li><t>signed; or</t></li>
+          <li><t>validated,</t></li>
+        </ul>
+        <t>but cannot yet cause the protected external consequence.</t>
+        <t>This property is central to execution finality.</t>
+        <t>Validation that occurs after an irreversible external effect does not provide the same property.</t>
+      </section>
+      <section anchor="execution-finality-validator">
+        <name>Execution-Finality Validator</name>
+        <t>An Execution-Finality Validator (EFV) is a logical component that evaluates a Candidate Act together with relevant validation inputs.</t>
+        <t>Inputs can include:</t>
+        <ul>
+          <li><t>Attestation Results;</t></li>
+          <li><t>workload identity;</t></li>
+          <li><t>calling identity;</t></li>
+          <li><t>target identity;</t></li>
+          <li><t>execution context;</t></li>
+          <li><t>authorization scope;</t></li>
+          <li><t>policy;</t></li>
+          <li><t>jurisdictional information;</t></li>
+          <li><t>resource state;</t></li>
+          <li><t>operation arguments;</t></li>
+          <li><t>time;</t></li>
+          <li><t>nonce;</t></li>
+          <li><t>sequence state;</t></li>
+          <li><t>replay state;</t></li>
+          <li><t>risk state; and</t></li>
+          <li><t>application-specific conditions.</t></li>
+        </ul>
+        <t>An EFV may be implemented using a protected execution environment, trusted service, DPU, HSM, enclave, kernel component, gateway, or other enforcement-capable mechanism.</t>
+      </section>
+      <section anchor="protected-validation-evidence">
+        <name>Protected Validation Evidence</name>
+        <t>Protected Validation Evidence (PVE) is evidence produced after validation of a particular Candidate Act.</t>
+        <t>PVE binds the authorization decision to the act or to a canonical representation of the act.</t>
+        <t>PVE is not intended to be general bearer authority for unrelated operations.</t>
+      </section>
+      <section anchor="execution-handle">
+        <name>Execution Handle</name>
+        <t>An Execution Handle (EH) is an optional scoped authorization artifact derived from successful validation.</t>
+        <t>An EH can authorize execution of the corresponding Candidate Act subject to constraints encoded directly or cryptographically referenced by the handle.</t>
+        <t>An EH <bcp14>SHOULD</bcp14> be:</t>
+        <ul>
+          <li><t>act-bound;</t></li>
+          <li><t>audience-bound where applicable;</t></li>
+          <li><t>short-lived;</t></li>
+          <li><t>replay-resistant;</t></li>
+          <li><t>non-transferable where feasible; and</t></li>
+          <li><t>unusable for materially different operations.</t></li>
+        </ul>
+      </section>
+      <section anchor="finality-sink">
+        <name>Finality Sink</name>
+        <t>A Finality Sink is the logical boundary at which a Candidate Act would first acquire the protected external effect.</t>
+        <t>A Finality Sink verifies, reconstructs, or otherwise establishes the required validation state before permitting that transition.</t>
+        <t>Examples include:</t>
+        <ul>
+          <li><t>an API gateway;</t></li>
+          <li><t>database commit boundary;</t></li>
+          <li><t>storage controller;</t></li>
+          <li><t>cloud-control-plane endpoint;</t></li>
+          <li><t>payment execution service;</t></li>
+          <li><t>network egress gateway;</t></li>
+          <li><t>DPU;</t></li>
+          <li><t>SmartNIC;</t></li>
+          <li><t>hypervisor;</t></li>
+          <li><t>operating-system kernel;</t></li>
+          <li><t>service-mesh proxy;</t></li>
+          <li><t>industrial controller;</t></li>
+          <li><t>messaging service; or</t></li>
+          <li><t>receiving workload.</t></li>
+        </ul>
+        <t>A Finality Sink is a logical function.</t>
+        <t>It need not be a separate physical device.</t>
+      </section>
+    </section>
+    <section anchor="architecture">
+      <name>Architecture</name>
+      <t>The basic architecture is:</t>
+      <figure>
+        <artwork type="text">
+              +-----------------------+
+              |   Workload / AI Agent |
+              +-----------+-----------+
+                          |
+                          | generates
+                          v
+                  +---------------+
+                  | Candidate Act |
+                  +-------+-------+
+                          |
+                    NON-EFFECTIVE
+                          |
+                          v
+       +---------------------------------------+
+       | Execution-Finality Validator          |
+       |                                       |
+       | Inputs may include:                   |
+       |                                       |
+       | - Attestation Result                  |
+       | - workload identity                   |
+       | - execution context                   |
+       | - policy                              |
+       | - Candidate Act parameters            |
+       | - target identity                     |
+       | - freshness / nonce                   |
+       | - authorization scope                 |
+       +------------------+--------------------+
+                          |
+                   validation success
+                          |
+                          v
+               +----------------------+
+               | PVE / Execution      |
+               | Handle               |
+               +----------+-----------+
+                          |
+                          v
+                  +---------------+
+                  | Finality Sink |
+                  +-------+-------+
+                          |
+                      EFFECTIVE
+                          |
+                          v
+                 +----------------+
+                 | External Effect|
+                 +----------------+
+</artwork>
+      </figure>
+      <t>The principal security property is that the protected external effect is dependent upon successful finality verification.</t>
+      <t>The invariant is that effectuation through a protected path depends on successful verification of authorization bound to the security-relevant content of the Candidate Act.  Neither the request representation nor an Attestation Result functions as unrestricted authority for a materially different act.</t>
+    </section>
+    <section anchor="binding-attestation-to-a-candidate-act">
+      <name>Binding Attestation to a Candidate Act</name>
+      <t>Attestation information can form part of the authorization context.</t>
+      <t>Conceptually:</t>
+      <figure>
+        <artwork type="text">
+Attestation Result
+        +
+Workload Identity
+        +
+Candidate Act
+        +
+Policy / Context
+        |
+        v
+Execution-Finality Validation
+        |
+        v
+Act-Bound PVE / EH
+</artwork>
+      </figure>
+      <t>The binding can be constructed over a canonical representation:</t>
+      <figure>
+        <artwork type="text">
+act_digest =
+    HASH(canonical_candidate_act)
+</artwork>
+      </figure>
+      <t>Validation evidence can then conceptually bind:</t>
+      <figure>
+        <artwork type="text">
+validation_binding = {
+    act_digest,
+    workload_identity,
+    attestation_reference,
+    target,
+    authorization_scope,
+    issued_at,
+    expires_at,
+    nonce,
+    policy_reference
+}
+</artwork>
+      </figure>
+      <t>This document does not mandate this encoding.</t>
+      <t>The important property is that authorization of Candidate Act A cannot normally be reused to effect Candidate Act B where B differs in a security-relevant parameter.</t>
+      <t>For example:</t>
+      <figure>
+        <artwork type="text">
+authorized:
+
+transfer(
+    destination = A,
+    amount      = 100
+)
+</artwork>
+      </figure>
+      <t>must not silently become authority for:</t>
+      <figure>
+        <artwork type="text">
+transfer(
+    destination = B,
+    amount      = 100000
+)
+</artwork>
+      </figure>
+      <t>because the workload identity and execution environment remain unchanged.</t>
+    </section>
+    <section anchor="why-attestation-alone-is-not-the-binding">
+      <name>Why Attestation Alone Is Not the Binding</name>
+      <t>Consider the following lifecycle:</t>
+      <figure>
+        <artwork type="text">
+T0  workload environment is attested
+
+T1  Relying Party accepts Attestation Result
+
+T2  workload processes external data
+
+T3  model generates Candidate Act A
+
+T4  external context changes
+
+T5  model generates Candidate Act B
+
+T6  operation reaches consequential system
+</artwork>
+      </figure>
+      <t>An Attestation Result can remain highly valuable throughout this lifecycle.</t>
+      <t>However, the authorization question at T6 may depend on information not represented solely by the fact that the environment was successfully attested at T0.</t>
+      <t>For example:</t>
+      <ul>
+        <li><t>the exact operation;</t></li>
+        <li><t>destination;</t></li>
+        <li><t>amount;</t></li>
+        <li><t>requested resource;</t></li>
+        <li><t>caller;</t></li>
+        <li><t>current policy;</t></li>
+        <li><t>tenant;</t></li>
+        <li><t>target;</t></li>
+        <li><t>time;</t></li>
+        <li><t>current system state; or</t></li>
+        <li><t>authorization scope.</t></li>
+      </ul>
+      <t>Execution-finality binding therefore allows attestation to remain an important trust input while independently binding authority to the concrete consequential operation.</t>
+    </section>
+    <section anchor="relationship-to-the-rats-architecture">
+      <name>Relationship to the RATS Architecture</name>
+      <t><xref target="RFC9334"/> defines a Relying Party as an entity that consumes Attestation Results and applies an appraisal policy for Attestation Results.</t>
+      <t>The Relying Party may make application-specific decisions, including authorization decisions.</t>
+      <t>This architecture is compatible with that model.</t>
+      <t>An implementation can model the Execution-Finality Validator as, or as part of, a Relying Party.</t>
+      <t>For example:</t>
+      <figure>
+        <artwork type="text">
+Attester
+    |
+    | Evidence
+    v
+Verifier
+    |
+    | Attestation Result
+    v
+Execution-Finality Validator / Relying Party
+    |
+    | act-bound validation
+    v
+Finality Sink
+</artwork>
+      </figure>
+      <t>The proposed extension is therefore not:</t>
+      <figure>
+        <artwork type="text">
+RATS cannot authorize
+</artwork>
+      </figure>
+      <t>but:</t>
+      <figure>
+        <artwork type="text">
+RATS Attestation Result
+          |
+          v
+application-specific appraisal
+          |
+          +
+    concrete Candidate Act
+          |
+          v
+act-bound finality authorization
+</artwork>
+      </figure>
+      <t>This allows existing RATS mechanisms to participate without making the Attestation Result itself a universal execution credential.</t>
+    </section>
+    <section anchor="composite-cpu-and-confidential-accelerator-environments">
+      <name>Composite CPU and Confidential-Accelerator Environments</name>
+      <t>Modern confidential workloads can span multiple independently attestable components.</t>
+      <t>For example:</t>
+      <figure>
+        <artwork type="text">
++------------------------------------------+
+| Confidential VM                          |
+|                                          |
+| CPU TEE                                  |
+|     |                                    |
+|     +------ Confidential GPU             |
+|     |                                    |
+|     +------ DPU / SmartNIC               |
+|                                          |
++------------------------------------------+
+</artwork>
+      </figure>
+      <t>Composite attestation can establish properties across those components.</t>
+      <t>Execution finality addresses the later transition:</t>
+      <figure>
+        <artwork type="text">
+composite trusted environment
+          |
+          v
+       compute
+          |
+          v
+    Candidate Act
+          |
+          v
+act-specific validation
+          |
+          v
+    Finality Sink
+          |
+          v
+   external effect
+</artwork>
+      </figure>
+      <t>This permits a system to benefit from heterogeneous attestation while avoiding an assumption that all outputs subsequently emitted by that environment necessarily carry identical authority.</t>
+    </section>
+    <section anchor="ai-accelerator-example">
+      <name>AI Accelerator Example</name>
+      <t>An AI inference workload executes using an accelerator.</t>
+      <t>The accelerator produces model output that an agent framework interprets as:</t>
+      <figure>
+        <artwork type="text">
+tool = cloud.compute.delete_instance
+
+arguments = {
+    instance: "production-47"
+}
+</artwork>
+      </figure>
+      <t>The output is first represented as:</t>
+      <figure>
+        <artwork type="text">
+CandidateAct {
+    action: "cloud.compute.delete_instance",
+    resource: "production-47"
+}
+</artwork>
+      </figure>
+      <t>It remains non-effective.</t>
+      <t>The validator evaluates:</t>
+      <figure>
+        <artwork type="text">
+workload identity
++
+accelerator / platform Attestation Result
++
+requested action
++
+resource
++
+tenant
++
+policy
++
+freshness
+</artwork>
+      </figure>
+      <t>If permitted, the validator produces validation evidence bound to:</t>
+      <figure>
+        <artwork type="text">
+HASH(
+    "cloud.compute.delete_instance"
+    ||
+    "production-47"
+)
+</artwork>
+      </figure>
+      <t>The cloud-control endpoint acts as the Finality Sink.</t>
+      <t>Without acceptable evidence for that Candidate Act, the deletion is not performed.</t>
+      <t>The accelerator remains responsible for computation.</t>
+      <t>The Finality Sink remains responsible for consequence.</t>
+    </section>
+    <section anchor="hyperscale-deployment">
+      <name>Hyperscale Deployment</name>
+      <t>A hyperscale deployment can place the architecture across existing infrastructure.</t>
+      <t>Example:</t>
+      <figure>
+        <artwork type="text">
++-------------+
+| AI workload |
++------+------+
+       |
+       v
++-------------+
+| GPU cluster |
++------+------+
+       |
+       | Candidate Act
+       v
++------------------+
+| DPU / SmartNIC   |
+| or local gateway |
++--------+---------+
+         |
+         | validated operation
+         v
++------------------+
+| Data-center      |
+| network fabric   |
++--------+---------+
+         |
+         v
++------------------+
+| Service / API /  |
+| storage endpoint |
+| Finality Sink    |
++--------+---------+
+         |
+         v
+  External Effect
+</artwork>
+      </figure>
+      <t>Other deployments may place validation at an API gateway:</t>
+      <figure>
+        <artwork type="text">
+GPU workload
+     |
+Candidate Act
+     |
+network fabric
+     |
+API gateway
+[EFV + Finality Sink]
+     |
+backend
+</artwork>
+      </figure>
+      <t>or at the destination:</t>
+      <figure>
+        <artwork type="text">
+GPU workload
+     |
+Candidate Act + PVE
+     |
+network
+     |
+destination service
+[Finality Sink]
+</artwork>
+      </figure>
+      <t>The architecture therefore does not require adding validation processing to each accelerator interconnect packet.</t>
+    </section>
+    <section anchor="dpu-and-smartnic-deployment">
+      <name>DPU and SmartNIC Deployment</name>
+      <t>DPUs and SmartNICs provide a particularly useful implementation location where infrastructure operators wish to separate application computation from enforcement.</t>
+      <t>Conceptually:</t>
+      <figure>
+        <artwork type="text">
+Host CPU / GPU
+      |
+Candidate Act
+      |
+      v
++----------------------+
+| DPU / SmartNIC       |
+|                      |
+| finality verification|
++----------+-----------+
+           |
+       authorized
+           |
+           v
+      network egress
+</artwork>
+      </figure>
+      <t>Such a design can provide a hardware-separated enforcement point without requiring modifications to the model or accelerator instruction stream.</t>
+      <t>However, this architecture does not require that a DPU or SmartNIC perform this function.</t>
+    </section>
+    <section anchor="network-fabric-considerations">
+      <name>Network Fabric Considerations</name>
+      <t>Execution finality is independent of network bandwidth and transport technology.</t>
+      <t>A Candidate Act can traverse:</t>
+      <ul>
+        <li><t>PCIe;</t></li>
+        <li><t>accelerator interconnects;</t></li>
+        <li><t>Ethernet;</t></li>
+        <li><t>InfiniBand;</t></li>
+        <li><t>optical networks;</t></li>
+        <li><t>service meshes;</t></li>
+        <li><t>QUIC;</t></li>
+        <li><t>HTTP;</t></li>
+        <li><t>RPC protocols; or</t></li>
+        <li><t>other transports.</t></li>
+      </ul>
+      <t>The fabric answers whether information can be moved.</t>
+      <t>Execution finality answers whether the consequential operation represented by that information is permitted to acquire effect.</t>
+      <t>Accordingly, the architecture does not require per-packet authorization of ordinary data-plane traffic.</t>
+      <t>Validation can occur only at security-relevant consequence boundaries.</t>
+    </section>
+    <section anchor="relationship-to-workload-identity">
+      <name>Relationship to Workload Identity</name>
+      <t>Workload identity establishes who or what a workload represents.</t>
+      <t>Execution finality addresses what a particular workload instance is permitted to cause through a particular Candidate Act.</t>
+      <t>The relationship can therefore be expressed as:</t>
+      <figure>
+        <artwork type="text">
+Workload identity
+      |
+      +-------------------+
+                          |
+                          v
+                    Candidate Act
+                          |
+                          v
+                  act authorization
+                          |
+                          v
+                    external effect
+</artwork>
+      </figure>
+      <t>A workload identity authenticates a workload principal; the authorization decision remains scoped to the requested operation and resource.</t>
+      <t>Conversely, an execution-finality system benefits from strong workload identity because the authorization evidence can be bound to the workload that generated or requested the operation.</t>
+      <t>The architecture can therefore consume workload identities and workload credentials defined by systems such as WIMSE <xref target="WIMSE"/>.</t>
+    </section>
+    <section anchor="separation-of-identity-trust-authority-and-finality">
+      <name>Separation of Identity, Trust, Authority, and Finality</name>
+      <t>The architecture distinguishes four questions.</t>
+      <t>These questions may be handled by one implementation component or several.  They remain logically distinct.</t>
+      <section anchor="identity">
+        <name>Identity</name>
+        <figure>
+          <artwork type="text">
+Who or what is this workload?
+</artwork>
+        </figure>
+      </section>
+      <section anchor="trust">
+        <name>Trust</name>
+        <figure>
+          <artwork type="text">
+What properties can be established about the environment?
+</artwork>
+        </figure>
+        <t>Remote attestation primarily contributes here.</t>
+      </section>
+      <section anchor="authority">
+        <name>Authority</name>
+        <figure>
+          <artwork type="text">
+Is this concrete operation permitted under the relevant
+identity, trust state, scope, policy, and context?
+</artwork>
+        </figure>
+      </section>
+      <section anchor="finality">
+        <name>Finality</name>
+        <figure>
+          <artwork type="text">
+Has the required authorization been established at the
+boundary where the operation would acquire consequence?
+</artwork>
+        </figure>
+      </section>
+    </section>
+    <section anchor="candidate-act-canonicalization">
+      <name>Candidate Act Canonicalization</name>
+      <t>Where a cryptographic digest is used to bind authorization to a Candidate Act, security-relevant fields need a deterministic representation.</t>
+      <t>For an HTTP operation this may include:</t>
+      <figure>
+        <artwork type="text">
+method
+scheme
+authority
+target path
+selected headers
+body digest
+target identity
+</artwork>
+      </figure>
+      <t>For an RPC operation:</t>
+      <figure>
+        <artwork type="text">
+service
+method
+canonical arguments
+target
+</artwork>
+      </figure>
+      <t>For an infrastructure operation:</t>
+      <figure>
+        <artwork type="text">
+operation identifier
+resource identifier
+parameters
+tenant
+target environment
+</artwork>
+      </figure>
+      <t>An implementation must ensure that semantically different acts cannot acquire the same authorization through ambiguous canonicalization.</t>
+      <t>The exact canonicalization profile is protocol specific and is outside the scope of this document.</t>
+    </section>
+    <section anchor="freshness">
+      <name>Freshness</name>
+      <t>Validation evidence should be bounded in time or transaction context when stale authorization would create security risk.</t>
+      <t>Possible mechanisms include:</t>
+      <ul>
+        <li><t>expiry timestamps;</t></li>
+        <li><t>nonces;</t></li>
+        <li><t>challenge values;</t></li>
+        <li><t>sequence numbers;</t></li>
+        <li><t>monotonic counters;</t></li>
+        <li><t>transaction identifiers; or</t></li>
+        <li><t>freshness claims inherited from an underlying protocol.</t></li>
+      </ul>
+      <t>Long-lived execution evidence can undermine the act-specific property if it can be replayed outside its intended context.</t>
+    </section>
+    <section anchor="replay-resistance">
+      <name>Replay Resistance</name>
+      <t>An attacker able to replay previously valid execution evidence may attempt to reproduce a consequential operation.</t>
+      <t>A deployment can mitigate this by binding validation evidence to one or more of:</t>
+      <figure>
+        <artwork type="text">
+act digest
+transaction identifier
+nonce
+target
+audience
+execution epoch
+expiry
+sequence value
+single-use state
+</artwork>
+      </figure>
+      <t>A Finality Sink may maintain replay state where required.</t>
+    </section>
+    <section anchor="non-bearer-properties">
+      <name>Non-Bearer Properties</name>
+      <t>A conventional bearer credential can confer authority primarily through possession.</t>
+      <t>For high-consequence execution, a deployment may require stronger binding.</t>
+      <t>An Execution Handle can therefore be bound to:</t>
+      <ul>
+        <li><t>Candidate Act digest;</t></li>
+        <li><t>workload key;</t></li>
+        <li><t>workload identifier;</t></li>
+        <li><t>attested execution context;</t></li>
+        <li><t>target;</t></li>
+        <li><t>channel;</t></li>
+        <li><t>proof-of-possession key;</t></li>
+        <li><t>transaction identifier; or</t></li>
+        <li><t>combinations thereof.</t></li>
+      </ul>
+      <t>The goal is to prevent extraction of a valid authorization artifact from becoming general reusable authority.</t>
+    </section>
+    <section anchor="finality-sink-placement">
+      <name>Finality Sink Placement</name>
+      <t>The Finality Sink should be located at a boundary where bypass would otherwise permit the protected external effect.</t>
+      <t>Possible boundaries include:</t>
+      <figure>
+        <artwork type="text">
+AI tool invocation gateway
+API ingress
+API egress
+database commit
+storage mutation
+cloud control plane
+DPU
+SmartNIC
+kernel
+hypervisor
+device controller
+payment processor
+receiving workload
+</artwork>
+      </figure>
+      <t>A system can contain multiple Finality Sinks for different consequence classes.</t>
+      <t>For example:</t>
+      <figure>
+        <artwork type="text">
+                 AI agent
+                    |
+             Candidate Acts
+           _________|_________
+          |         |         |
+          v         v         v
+       payment   storage    network
+         sink      sink       sink
+</artwork>
+      </figure>
+    </section>
+    <section anchor="finality-sink-is-not-necessarily-a-new-appliance">
+      <name>Finality Sink Is Not Necessarily a New Appliance</name>
+      <t>The term Finality Sink describes a logical enforcement boundary.</t>
+      <t>Existing infrastructure can implement the function.</t>
+      <t>Examples include:</t>
+      <ul>
+        <li><t>an API gateway that verifies an act-bound proof;</t></li>
+        <li><t>a database server that refuses mutation without corresponding authorization evidence;</t></li>
+        <li><t>a DPU that prevents unauthorized control traffic from leaving a host;</t></li>
+        <li><t>a hypervisor that mediates device operations;</t></li>
+        <li><t>an operating-system service that validates privileged actions;</t></li>
+        <li><t>a receiving workload that verifies proof before acting.</t></li>
+      </ul>
+      <t>A deployment therefore does not necessarily introduce an additional network hop.</t>
+    </section>
+    <section anchor="hot-path-and-cold-path-processing">
+      <name>Hot-Path and Cold-Path Processing</name>
+      <t>A practical deployment should avoid placing expensive operations on every consequential hot path.</t>
+      <t>The architecture permits separation between:</t>
+      <t>Cold-path operations</t>
+      <ul>
+        <li><t>attestation verification;</t></li>
+        <li><t>endorsement retrieval;</t></li>
+        <li><t>certificate-chain processing;</t></li>
+        <li><t>policy distribution;</t></li>
+        <li><t>reference-value processing; and</t></li>
+        <li><t>long-lived trust-context establishment.</t></li>
+      </ul>
+      <t>and:</t>
+      <t>Hot-path operations</t>
+      <ul>
+        <li><t>Candidate Act digest computation;</t></li>
+        <li><t>freshness verification;</t></li>
+        <li><t>context lookup;</t></li>
+        <li><t>policy decision;</t></li>
+        <li><t>proof verification; and</t></li>
+        <li><t>finality enforcement.</t></li>
+      </ul>
+      <t>For example:</t>
+      <figure>
+        <artwork type="text">
+       COLD PATH
+
+GPU / CVM attestation
+       |
+       v
+Verifier
+       |
+Attestation Result
+       |
+cached trust context
+       |
+       +--------------------+
+                            |
+                            v
+
+                         HOT PATH
+
+AI output -> Candidate Act
+                |
+                v
+      lookup trust context
+                |
+      act-specific validation
+                |
+                v
+          Finality Sink
+</artwork>
+      </figure>
+      <t>This allows expensive attestation operations to remain outside the per-act path where policy permits.</t>
+    </section>
+    <section anchor="legacy-deployment">
+      <name>Legacy Deployment</name>
+      <t>Execution-finality enforcement does not require immediate modification of all applications.</t>
+      <t>A sidecar, gateway, DPU, service-mesh proxy, reverse proxy, API-management layer, or workload wrapper can mediate protected operations.</t>
+      <t>Example:</t>
+      <figure>
+        <artwork type="text">
+Legacy AI application
+        |
+        | ordinary API request
+        v
++-----------------------+
+| Finality sidecar      |
+|                       |
+| creates Candidate Act |
+| validates / obtains   |
+| PVE                   |
++-----------+-----------+
+            |
+            v
+       external API
+</artwork>
+      </figure>
+      <t>This permits incremental deployment.</t>
+    </section>
+    <section anchor="failure-modes">
+      <name>Failure Modes</name>
+      <section anchor="validation-failure">
+        <name>Validation Failure</name>
+        <t>If required validation fails, the Candidate Act remains non-effective.</t>
+      </section>
+      <section anchor="missing-attestation-context">
+        <name>Missing Attestation Context</name>
+        <t>Where policy requires an acceptable Attestation Result and no acceptable result exists, validation fails.</t>
+      </section>
+      <section anchor="expired-validation-evidence">
+        <name>Expired Validation Evidence</name>
+        <t>Expired evidence is rejected where freshness is required.</t>
+      </section>
+      <section anchor="parameter-mutation">
+        <name>Parameter Mutation</name>
+        <t>If security-relevant Candidate Act parameters change after validation, the original validation binding no longer authorizes the modified act.</t>
+      </section>
+      <section anchor="finality-sink-unavailable">
+        <name>Finality Sink Unavailable</name>
+        <t>A system should fail according to the consequence class.</t>
+        <t>High-consequence systems will commonly fail closed.</t>
+        <t>Other systems may define application-specific behavior.</t>
+      </section>
+    </section>
+    <section anchor="threat-model">
+      <name>Threat Model</name>
+      <t>The architecture is intended to address threats including:</t>
+      <ul>
+        <li><t>an AI workload generating an operation outside intended authority;</t></li>
+        <li><t>manipulation of Candidate Act parameters after validation;</t></li>
+        <li><t>replay of prior authorization evidence;</t></li>
+        <li><t>use of trusted-workload credentials for unauthorized operations;</t></li>
+        <li><t>propagation of general bearer authority through multiple workloads;</t></li>
+        <li><t>compromise of an application component outside a protected validation boundary;</t></li>
+        <li><t>confusion between attested execution and act authorization; and</t></li>
+        <li><t>bypass of the intended consequence-enforcement boundary.</t></li>
+      </ul>
+      <t>The architecture does not guarantee correctness of the underlying policy.</t>
+      <t>It also does not prevent compromise of every component if the Finality Sink itself is fully compromised.</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>Execution-finality systems create a security dependency on correct identification of the consequence boundary.</t>
+      <t>If an attacker can bypass the Finality Sink and reach another path capable of producing the same external effect, technical non-effectiveness is not established.</t>
+      <t>Implementations therefore need to identify all relevant effectuation paths.</t>
+      <t>Validation evidence should bind all security-relevant fields of a Candidate Act.</t>
+      <t>Failure to bind a relevant argument can permit substitution attacks.</t>
+      <t>For example, binding:</t>
+      <figure>
+        <artwork type="text">
+operation = "transfer"
+</artwork>
+      </figure>
+      <t>without binding:</t>
+      <figure>
+        <artwork type="text">
+destination
+amount
+currency
+</artwork>
+      </figure>
+      <t>would normally provide inadequate protection for a payment operation.</t>
+      <t>Attestation Results should not be interpreted beyond their defined semantics.</t>
+      <t>A successful Attestation Result does not establish properties that were not measured, claimed, or appraised.</t>
+      <t>Likewise, execution-finality validation does not establish that an AI model's reasoning is correct.  It establishes only that the defined conditions for permitting a particular act were satisfied.</t>
+      <t>Implementations should protect validator signing keys and other execution-authority material.</t>
+      <t>Where possible, execution evidence should use proof-of-possession, audience restriction, act binding, freshness, or equivalent mechanisms instead of unrestricted bearer semantics.</t>
+    </section>
+    <section anchor="privacy-considerations">
+      <name>Privacy Considerations</name>
+      <t>Candidate Acts can contain sensitive information.</t>
+      <t>Validation systems should avoid exposing unnecessary operation parameters.</t>
+      <t>Where practical, deployments can validate cryptographic commitments or digests instead of transmitting full Candidate Act contents to unrelated components.</t>
+      <t>Attestation information can also reveal platform characteristics.</t>
+      <t>Existing RATS privacy guidance remains applicable.</t>
+      <t>Implementations should minimize correlation identifiers and avoid creating unnecessarily persistent identifiers for AI workloads or users.</t>
+    </section>
+    <section anchor="example-confidential-ai-inference-in-a-hyperscaler">
+      <name>Example: Confidential AI Inference in a Hyperscaler</name>
+      <t>Consider a tenant running an AI agent inside a confidential VM with confidential accelerators.</t>
+      <t>The environment is remotely attested.</t>
+      <figure>
+        <artwork type="text">
+CPU/CVM Evidence
+       +
+GPU Evidence
+       |
+       v
+Composite Attestation
+       |
+       v
+Attestation Result
+</artwork>
+      </figure>
+      <t>The AI workload subsequently generates:</t>
+      <figure>
+        <artwork type="text">
+Candidate Act:
+
+POST /v1/infrastructure/deploy
+
+tenant      = T1
+image       = model-service-v4
+environment = production
+region      = R1
+</artwork>
+      </figure>
+      <t>The operation remains non-effective.</t>
+      <t>The validator evaluates:</t>
+      <figure>
+        <artwork type="text">
+Candidate Act
+       +
+Attestation Result
+       +
+workload identity
+       +
+tenant authorization
+       +
+deployment policy
+       +
+freshness
+</artwork>
+      </figure>
+      <t>Successful validation produces evidence bound to the exact deployment request.</t>
+      <t>The cloud control-plane API acts as the Finality Sink.</t>
+      <t>Only after verification does:</t>
+      <figure>
+        <artwork type="text">
+Candidate Act
+</artwork>
+      </figure>
+      <t>become:</t>
+      <figure>
+        <artwork type="text">
+Effective Deployment
+</artwork>
+      </figure>
+      <t>The confidential-computing environment establishes trust in computation.</t>
+      <t>Execution finality establishes the controlled transition from computation to consequence.</t>
+    </section>
+    <section anchor="example-dpu-mediated-ai-egress">
+      <name>Example: DPU-Mediated AI Egress</name>
+      <t>A GPU-hosted autonomous workload generates requests that leave a server.</t>
+      <t>The host architecture provides a DPU-controlled network path.</t>
+      <figure>
+        <artwork type="text">
++-----------------------+
+| CPU + GPU             |
+|                       |
+| AI workload           |
++-----------+-----------+
+            |
+      Candidate Act
+            |
+            v
++-----------------------+
+| DPU                   |
+|                       |
+| finality verification |
++-----------+-----------+
+            |
+        authorized
+            |
+            v
+      data-center fabric
+</artwork>
+      </figure>
+      <t>For protected operation classes, the DPU can require acceptable execution evidence before permitting the operation to reach its external destination.</t>
+      <t>Normal network traffic does not need to be subjected to this mechanism unless policy classifies it as consequential.</t>
+    </section>
+    <section anchor="example-multi-workload-agent-chain">
+      <name>Example: Multi-Workload Agent Chain</name>
+      <t>An AI task can cross multiple workloads:</t>
+      <figure>
+        <artwork type="text">
+User
+ |
+ v
+Agent A
+ |
+ v
+Planner B
+ |
+ v
+Tool Broker C
+ |
+ v
+Service D
+</artwork>
+      </figure>
+      <t>Identity and trust can be propagated through the chain.</t>
+      <t>However, the final consequential operation may depend on arguments generated only near the end of the workflow.</t>
+      <t>Execution finality permits the final concrete operation to be validated independently of the fact that earlier workloads were authenticated or attested.</t>
+      <figure>
+        <artwork type="text">
+authenticated chain
+       |
+       v
+concrete Candidate Act
+       |
+       v
+final act-specific validation
+       |
+       v
+external consequence
+</artwork>
+      </figure>
+    </section>
+    <section anchor="interoperability-requirements">
+      <name>Interoperability Requirements</name>
+      <t>Future protocol work based on this architecture should support interoperability between:</t>
+      <ul>
+        <li><t>Attestation Result producers;</t></li>
+        <li><t>workload-identity systems;</t></li>
+        <li><t>execution-finality validators;</t></li>
+        <li><t>AI runtimes;</t></li>
+        <li><t>gateways;</t></li>
+        <li><t>DPUs;</t></li>
+        <li><t>SmartNICs;</t></li>
+        <li><t>confidential-computing platforms; and</t></li>
+        <li><t>Finality Sinks.</t></li>
+      </ul>
+      <t>A protocol profile would need to define at least:</t>
+      <ol>
+        <li><t>Candidate Act identification;</t></li>
+        <li><t>canonicalization;</t></li>
+        <li><t>act digest representation;</t></li>
+        <li><t>validation-evidence format;</t></li>
+        <li><t>workload binding;</t></li>
+        <li><t>attestation binding;</t></li>
+        <li><t>audience or target binding;</t></li>
+        <li><t>freshness;</t></li>
+        <li><t>replay protection;</t></li>
+        <li><t>error handling; and</t></li>
+        <li><t>cryptographic algorithm negotiation.</t></li>
+      </ol>
+      <t>These details are intentionally left for subsequent protocol documents.</t>
+    </section>
+    <section anchor="potential-protocol-flow">
+      <name>Potential Protocol Flow</name>
+      <t>A future protocol could use a flow similar to:</t>
+      <figure>
+        <artwork type="text">
+Workload             EFV                 Finality Sink
+   |                   |                       |
+   | Candidate Act     |                       |
+   |------------------>|                       |
+   |                   |                       |
+   |   validation context / attestation        |
+   |                   |                       |
+   |                   |                       |
+   |&lt;------------------|                       |
+   |  PVE / EH         |                       |
+   |                                           |
+   | Candidate Act + PVE/EH                    |
+   |------------------------------------------>|
+   |                                           |
+   |                              verify act   |
+   |                              binding      |
+   |                                           |
+   |                              effectuate   |
+   |                                           |
+</artwork>
+      </figure>
+      <t>Another deployment may have the Finality Sink request validation directly:</t>
+      <figure>
+        <artwork type="text">
+Workload          Finality Sink             EFV
+   |                   |                     |
+   | Candidate Act     |                     |
+   |------------------>|                     |
+   |                   | validation request  |
+   |                   |-------------------->|
+   |                   |                     |
+   |                   | validation result   |
+   |                   |&lt;--------------------|
+   |                   |                     |
+   |                   | effectuate          |
+</artwork>
+      </figure>
+      <t>The architecture permits both models.</t>
+    </section>
+    <section anchor="minimal-poc-profile">
+      <name>Minimal Vendor-Neutral Proof-of-Concept Profile</name>
+      <t>This section defines one deliberately narrow profile that can be implemented to test the architectural invariant.  It is not a general Candidate Act format and does not register a new token type.  Its purpose is to make the proposal falsifiable, permit independent implementations to exercise the same processing steps, and identify which parts require subsequent standardization.</t>
+
+      <section anchor="poc-protected-operation">
+        <name>Protected Operation</name>
+        <t>The proof of concept protects one HTTP operation:</t>
+        <figure><artwork type="text">
+POST https://payments.example/transfer
+Content-Type: application/json
+
+{"destination":"account-B","amount":100,"currency":"USD"}
+</artwork></figure>
+        <t>The API gateway is the Finality Sink.  The downstream payment test service is reachable only through that gateway.  The service performs no real financial transfer; it records an accepted test operation.</t>
+      </section>
+
+      <section anchor="poc-candidate-act">
+        <name>Canonical CandidateAct</name>
+        <t>The proof of concept represents the security-relevant operation as the following CBOR map.  Integer labels are used only for this experimental profile:</t>
+        <figure><artwork type="cddl">
+candidate-act = {
+  1: 1,                 ; profile version
+  2: "POST",            ; uppercase HTTP method
+  3: tstr,              ; lowercase authority
+  4: tstr,              ; normalized absolute path
+  5: bstr .size 32,     ; SHA-256 of request body bytes
+  6: tstr,              ; intended Finality Sink identifier
+  7: tstr               ; transaction identifier
+}
+</artwork></figure>
+        <t>The body is serialized as UTF-8 JSON using the fixed member order and no insignificant whitespace shown in the test vector.  This restriction is suitable only for the proof of concept; a reusable HTTP profile would need a complete content canonicalization rule.</t>
+        <t>The Candidate Act is encoded using the deterministic-encoding requirements of <xref target="RFC8949"/>.  The act digest is:</t>
+        <figure><artwork type="text">
+act_digest = SHA-256(deterministic-CBOR(candidate-act))
+</artwork></figure>
+        <t>The gateway reconstructs the Candidate Act from the received request rather than trusting a digest supplied by the workload.  Any change to the method, authority, path, body bytes, audience, or transaction identifier therefore changes the reconstructed act or its digest.</t>
+      </section>
+
+      <section anchor="poc-attestation-input">
+        <name>EAT and Attestation-Result Input</name>
+        <t>The EFV consumes one valid EAT conforming to <xref target="RFC9711"/> or an Attestation Result produced by a configured Verifier from that EAT.  The proof-of-concept configuration identifies the accepted EAT profile, trust anchor, required claims, freshness rule, and appraisal policy.  Accepting a syntactically valid token without applying that profile and policy is an error.</t>
+        <t>After successful appraisal, the EFV derives:</t>
+        <figure><artwork type="text">
+attestation_context_id =
+    SHA-256(verifier_identifier || appraisal_result_bytes)
+</artwork></figure>
+        <t>The byte encoding and semantics of <tt>appraisal_result_bytes</tt> are fixed by the proof-of-concept configuration.  The Execution Handle carries this derived identifier, not the original Evidence, so that the gateway need not repeat full Evidence appraisal on the per-operation path.</t>
+      </section>
+
+      <section anchor="poc-execution-handle">
+        <name>Signed Execution Handle</name>
+        <t>Following successful appraisal and operation-specific policy evaluation, the EFV issues a COSE_Sign1 object as specified by <xref target="RFC9052"/>.  Its payload is the deterministic CBOR encoding of:</t>
+        <figure><artwork type="cddl">
+execution-handle = {
+  1: 1,                 ; profile version
+  2: bstr .size 32,     ; act_digest
+  3: tstr,              ; workload identity
+  4: bstr .size 32,     ; attestation_context_id
+  5: tstr,              ; Finality Sink audience
+  6: uint,              ; issued-at, epoch seconds
+  7: uint,              ; expiry, epoch seconds
+  8: bstr,              ; unpredictable nonce
+  9: tstr               ; transaction identifier
+}
+</artwork></figure>
+        <t>The protected COSE header contains the algorithm identifier and a key identifier.  The initial proof of concept uses one mandatory signing algorithm selected in its published implementation manifest.  Algorithm agility and negotiation are outside this experimental profile.  The EFV signing key is distinct from an Attester key, and possession of an EAT does not permit issuance of an Execution Handle.</t>
+      </section>
+
+      <section anchor="poc-gateway-processing">
+        <name>Finality-Sink Processing</name>
+        <t>For the protected endpoint, the gateway <bcp14>MUST</bcp14> reject the request unless all of the following checks succeed:</t>
+        <ol>
+          <li><t>An Execution Handle is present in the configured request field.</t></li>
+          <li><t>The COSE_Sign1 structure and EFV signature are valid under a configured key.</t></li>
+          <li><t>The profile version and signing algorithm are accepted.</t></li>
+          <li><t>The audience equals the gateway's configured Finality Sink identifier.</t></li>
+          <li><t>The current time is within the issued-at and expiry interval.</t></li>
+          <li><t>The transaction identifier in the handle equals the transaction identifier used to reconstruct the request.</t></li>
+          <li><t>The gateway reconstructs and deterministically encodes the Candidate Act, and its SHA-256 digest equals <tt>act_digest</tt> in the handle.</t></li>
+          <li><t>The nonce has not previously been consumed for that EFV and audience.</t></li>
+        </ol>
+        <t>The gateway <bcp14>MUST</bcp14> record the nonce as consumed atomically with release of the request to the test service.  A failed check produces no downstream request.  The proof of concept distinguishes malformed credentials, invalid authorization, expired authorization, act mismatch, and replay in internal logs; an external deployment may intentionally return less specific errors.</t>
+      </section>
+
+      <section anchor="poc-negative-tests">
+        <name>Required Test Vectors</name>
+        <t>A published implementation of this profile includes reproducible input bytes, deterministic Candidate Act bytes, act digests, COSE_Sign1 bytes, public verification keys, and expected results for at least the following cases:</t>
+        <table>
+          <thead><tr><th>Case</th><th>Variation</th><th>Expected result</th></tr></thead>
+          <tbody>
+            <tr><td>V1</td><td>Exact request and unused valid handle</td><td>Accepted once</td></tr>
+            <tr><td>V2</td><td>Missing handle</td><td>Rejected</td></tr>
+            <tr><td>V3</td><td>Amount changed from 100 to 100000</td><td>Act mismatch</td></tr>
+            <tr><td>V4</td><td>Destination changed</td><td>Act mismatch</td></tr>
+            <tr><td>V5</td><td>Method or path changed</td><td>Act mismatch</td></tr>
+            <tr><td>V6</td><td>Expired handle</td><td>Rejected</td></tr>
+            <tr><td>V7</td><td>Second use of the V1 handle</td><td>Replay rejected</td></tr>
+            <tr><td>V8</td><td>Different Finality Sink audience</td><td>Rejected</td></tr>
+            <tr><td>V9</td><td>Modified COSE payload or signature</td><td>Rejected</td></tr>
+            <tr><td>V10</td><td>Unacceptable or stale EAT at issuance</td><td>No handle issued</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="poc-measurement">
+        <name>Latency Measurement and Publication</name>
+        <t>Performance claims require measured results.  A proof-of-concept report therefore records software version, hardware, operating system, cryptographic algorithm, key type, gateway topology, replay-store implementation, concurrency, request-body size, sample count, and warm-up procedure.</t>
+        <t>The report separately measures:</t>
+        <ul>
+          <li><t>cold-path EAT verification and appraisal;</t></li>
+          <li><t>Candidate Act construction and digest computation;</t></li>
+          <li><t>Execution Handle issuance;</t></li>
+          <li><t>gateway signature, binding, freshness, and replay verification;</t></li>
+          <li><t>end-to-end protected-request latency; and</t></li>
+          <li><t>the same request through the gateway without finality processing as the baseline.</t></li>
+        </ul>
+        <t>Results are reported as throughput and latency distributions including median, 95th percentile, and 99th percentile, rather than as an unsupported single latency value.</t>
+      </section>
+
+      <section anchor="poc-status">
+        <name>Implementation Status</name>
+        <t>At publication of this version of the document, this section specifies a reproducible proof-of-concept target.  It does not claim that interoperable code, completed test-vector byte strings, or measured latency results have already been published.  Such artifacts should be referenced here only after they are publicly available and independently reproducible.</t>
+      </section>
+    </section>
+    <section anchor="why-this-matters-for-ai-infrastructure">
+      <name>Why This Matters for AI Infrastructure</name>
+      <t>AI runtimes increasingly translate generated output into API, control-plane, and storage operations.  Infrastructure may already provide several sources of identity and appraisal information:</t>
+      <figure>
+        <artwork type="text">
+CPU attestation
+GPU attestation
+confidential VMs
+accelerator isolation
+DPU isolation
+workload identity
+service identity
+</artwork>
+      </figure>
+      <t>The proposal defines how those inputs can participate in an operation-specific authorization decision whose verification is enforced at the relevant effectuation boundary:</t>
+      <figure>
+        <artwork type="text">
+a consequential output remains non-effective
+until the authorization required for that exact
+operation is established at its consequence boundary.
+</artwork>
+      </figure>
+      <t>This is an application of attestation and workload identity to consequence-bearing operations; it is not a claim that the underlying attestation mechanisms are deficient.</t>
+    </section>
+    <section anchor="operational-considerations">
+      <name>Operational Considerations</name>
+      <t>Deployments should classify operations according to consequence.</t>
+      <t>It is neither necessary nor desirable to apply expensive finality processing to every tensor operation, memory transaction, or network packet.</t>
+      <t>Instead, enforcement can occur at semantically meaningful boundaries such as:</t>
+      <figure>
+        <artwork type="text">
+create
+delete
+transfer
+deploy
+publish
+send
+commit
+open
+release
+modify
+authorize
+</artwork>
+      </figure>
+      <t>This permits high-throughput accelerator and network fabrics to operate normally while protected consequences receive stronger authorization semantics.</t>
+    </section>
+    <section anchor="discussion-of-latency">
+      <name>Discussion of Latency</name>
+      <t>A common concern with additional authorization boundaries is latency.</t>
+      <t>This architecture permits several optimizations.</t>
+      <t>First, full attestation verification can occur on the cold path.</t>
+      <t>Second, Attestation Results or derived trust context can be cached according to their security properties.</t>
+      <t>Third, Candidate Act validation can use compact digests instead of transmitting large model outputs.</t>
+      <t>Fourth, validation can be colocated with a DPU, gateway, service mesh, kernel component, API endpoint, or target workload.</t>
+      <t>Fifth, a Finality Sink can perform local cryptographic verification without a new network round trip where appropriate.</t>
+      <t>Accordingly, the architecture does not require remote attestation to be repeated for every model output.</t>
+    </section>
+    <section anchor="open-questions">
+      <name>Open Questions</name>
+      <t>The following questions are intentionally left open for IETF discussion:</t>
+      <ol>
+        <li><t>Should an act-bound execution authorization be represented as a profile of an existing token format or as a new artifact?</t></li>
+        <li><t>Which Candidate Act canonicalizations are sufficiently generic for reuse?</t></li>
+        <li><t>Should the Attestation Result be carried directly, referenced by digest, or represented through derived trust context?</t></li>
+        <li><t>How should workload identity and proof-of-possession credentials be bound to execution-finality evidence?</t></li>
+        <li><t>Which components naturally perform the Finality Sink role in cloud and accelerator environments?</t></li>
+        <li><t>Can existing RATS conceptual messages be profiled for this use case without creating a new protocol?</t></li>
+        <li><t>Which parts belong in RATS and which are better handled by WIMSE or application-specific authorization protocols?</t></li>
+        <li><t>How should multi-verifier and composite-attestation results be represented in act-specific validation?</t></li>
+        <li><t>How should the architecture handle long-running agentic workflows in which authorization context changes between planning and execution?</t></li>
+        <li><t>Which mechanisms provide the lowest-latency implementation in GPU, DPU, SmartNIC, service-mesh, and hyperscaler environments?</t></li>
+      </ol>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+      <t>Future protocol specifications based on this architecture may require registration of media types, token claims, CBOR labels, HTTP fields, or other protocol identifiers.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>Normative References</name>
+      <reference anchor="RFC9334" target="https://www.rfc-editor.org/info/rfc9334">
+        <front>
+          <title>Remote ATtestation procedureS (RATS) Architecture</title>
+          <author initials="H." surname="Birkholz"><organization/></author>
+          <author initials="D." surname="Thaler"><organization/></author>
+          <author initials="M." surname="Richardson"><organization/></author>
+          <author initials="N." surname="Smith"><organization/></author>
+          <author initials="W." surname="Pan"><organization/></author>
+          <date year="2023" month="January"/>
+        </front>
+        <seriesInfo name="RFC" value="9334"/>
+      </reference>
+      <reference anchor="RFC8949" target="https://www.rfc-editor.org/info/rfc8949">
+        <front>
+          <title>Concise Binary Object Representation (CBOR)</title>
+          <author initials="C." surname="Bormann"><organization/></author>
+          <author initials="P." surname="Hoffman"><organization/></author>
+          <date year="2020" month="December"/>
+        </front>
+        <seriesInfo name="RFC" value="8949"/>
+      </reference>
+      <reference anchor="RFC9052" target="https://www.rfc-editor.org/info/rfc9052">
+        <front>
+          <title>CBOR Object Signing and Encryption (COSE): Structures and Process</title>
+          <author initials="J." surname="Schaad"><organization/></author>
+          <date year="2022" month="August"/>
+        </front>
+        <seriesInfo name="RFC" value="9052"/>
+      </reference>
+      <reference anchor="RFC9711" target="https://www.rfc-editor.org/info/rfc9711">
+        <front>
+          <title>Entity Attestation Token (EAT)</title>
+          <author initials="L." surname="Lundblade"><organization/></author>
+          <author initials="G." surname="Mandyam"><organization/></author>
+          <author initials="J." surname="O'Donoghue"><organization/></author>
+          <author initials="C." surname="Wallace"><organization/></author>
+          <date year="2025" month="April"/>
+        </front>
+        <seriesInfo name="RFC" value="9711"/>
+      </reference>
+    </references>
+    <references>
+      <name>Informative References</name>
+      <reference anchor="WIMSE">
+        <front>
+          <title>Workload Identity in Multi System Environments (WIMSE)</title>
+          <author><organization>IETF WIMSE Working Group</organization></author>
+        </front>
+        <annotation>IETF Workload Identity in Multi System Environments work.</annotation>
+      </reference>
+      <reference anchor="TDX-CGPU-EAR">
+        <front>
+          <title>EAT Attestation Result (EAR) profile for Intel Trust Domain Extensions (TDX) + Confidential GPU (C-GPU) composite attestation</title>
+          <author initials="G." surname="Kostal"><organization/></author>
+          <author initials="R." surname="Yeluri"><organization/></author>
+          <author initials="D." surname="Kumar"><organization/></author>
+          <date/>
+        </front>
+        <annotation>Work in progress.</annotation>
+      </reference>
+    </references>
+    <section anchor="architectural-summary" numbered="false">
+      <name>Appendix A.  Architectural Summary</name>
+      <t>The complete transition can be summarized as:</t>
+      <figure>
+        <artwork type="text">
+                     TRUST PLANE
+
+            Evidence / Attestation
+                      |
+                      v
+                  Verifier
+                      |
+                      v
+             Attestation Result
+                      |
+                      |
+                      v
+
+                  COMPUTE PLANE
+
+             CPU / GPU / NPU /
+             accelerator / AI
+                      |
+                      v
+                 computation
+                      |
+                      v
+
+                Candidate Act
+                      |
+               NON-EFFECTIVE
+                      |
+                      v
+
+                 AUTHORITY PLANE
+
+             workload identity
+                      +
+             attestation context
+                      +
+               Candidate Act
+                      +
+                    policy
+                      |
+                      v
+          Execution-Finality Validator
+                      |
+                      v
+             act-bound PVE / EH
+                      |
+                      v
+
+                 FINALITY PLANE
+
+                Finality Sink
+                      |
+                      v
+              EXTERNAL EFFECT
+</artwork>
+      </figure>
+      <t>The principal distinction is:</t>
+      <figure>
+        <artwork type="text">
+ENVIRONMENT APPRAISAL
+          +
+WORKLOAD AUTHENTICATION
+          +
+OPERATION-SPECIFIC POLICY
+          |
+          v
+ACT-BOUND AUTHORIZATION
+          |
+          v
+VERIFICATION AT EFFECTUATION BOUNDARY
+</artwork>
+      </figure>
+    </section>
+    <section anchor="concise-statement-for-discussion" numbered="false">
+      <name>Appendix B.  Concise Statement for Discussion</name>
+      <t>This document explores a narrow interoperability question:</t>
+      <t>How can a Relying Party's appraisal input and an authenticated workload identity be incorporated into authorization evidence for one canonically represented operation, with verification enforced before the protected effect is committed?</t>
+      <t>The mechanism is intended to reuse existing attestation and identity infrastructure rather than replace it.</t>
+    </section>
+    <section anchor="technical-faq" numbered="false">
+      <name>Appendix C.  Technical FAQ and Anticipated Engineering Questions</name>
+      <t>This appendix addresses technical questions likely to arise when considering attestation-bound execution finality in relation to RATS, WIMSE, confidential computing, AI accelerators, DPUs, SmartNICs, and hyperscale infrastructure.</t>
+
+      <section anchor="faq-1" numbered="false">
+        <name>FAQ 1.  Isn't this already what a RATS Relying Party does?</name>
+        <t><strong>Question</strong></t>
+        <t>RFC 9334 already states that a Relying Party can consume an Attestation Result and use its own appraisal policy to make an application-specific authorization decision.  Why is another execution-finality architecture necessary?</t>
+        <t><strong>Answer</strong></t>
+        <t>The proposed architecture does not change that RATS property.</t>
+        <t>A RATS Relying Party can absolutely decide whether an Attester should be allowed to perform an operation.</t>
+        <t>The narrower problem addressed here is whether the result of that decision is cryptographically and operationally bound to the exact consequential operation that eventually reaches the effectuation boundary.</t>
+        <t>The distinction is:</t>
+        <figure>
+          <artwork type="text">
+RATS:
+
+Evidence
+   |
+Verifier
+   |
+Attestation Result
+   |
+Relying Party
+   |
+application-specific decision
+</artwork>
+        </figure>
+        <t>The proposed execution-finality composition adds:</t>
+        <figure>
+          <artwork type="text">
+Attestation Result
+       +
+Candidate Act
+       +
+workload identity
+       +
+policy/context
+       |
+       v
+act-specific authorization
+       |
+       v
+protected act binding
+       |
+       v
+Finality Sink
+       |
+       v
+External Effect
+</artwork>
+        </figure>
+        <t>The additional property is end-to-end correspondence: the operation evaluated by the authorization function is the operation accepted at the protected effectuation boundary, including its security-relevant arguments.</t>
+        <t>A RATS Relying Party can be the Execution-Finality Validator, the Finality Sink, or both.</t>
+        <t>The terminology is therefore intended to specialize an application of RATS rather than introduce an alternative attestation architecture.</t>
+        <t><strong>RATS relevance:</strong> direct.  RFC 9334 already provides the Attester, Verifier, Attestation Result, Relying Party, Evidence, and appraisal concepts needed as inputs.</t>
+        <t><strong>WIMSE relevance:</strong> workload identity can provide the authenticated workload identity used in the Relying Party's act-specific decision.</t>
+      </section>
+
+      <section anchor="faq-2" numbered="false">
+        <name>FAQ 2.  Is this simply AR4SI applied to individual requests?</name>
+        <t><strong>Question</strong></t>
+        <t>RATS already has Attestation Results for Secure Interactions.  Why is an additional mechanism necessary?</t>
+        <t><strong>Answer</strong></t>
+        <t>AR4SI is highly complementary.</t>
+        <t>AR4SI describes reusable information that allows a Relying Party to evaluate properties such as identity, trustworthiness, and freshness and then determine whether secure interaction should be allowed.</t>
+        <t>Execution finality applies a distinct authorization decision to operations within an accepted secure interaction when their consequence, target, or arguments require different policy treatment.</t>
+        <t>For example, an attested AI workload might be permitted to communicate with a cloud-control service.</t>
+        <t>During the same authenticated interaction it could generate:</t>
+        <figure>
+          <artwork type="text">
+GET /instances
+</artwork>
+        </figure>
+        <t>followed later by:</t>
+        <figure>
+          <artwork type="text">
+DELETE /instances/production-47
+</artwork>
+        </figure>
+        <t>The secure-interaction trust state can remain valid for both messages while the authorization requirements differ substantially.</t>
+        <t>Execution finality therefore permits:</t>
+        <figure>
+          <artwork type="text">
+AR4SI trust information
+          |
+          v
+persistent/cached trust context
+          |
+          +------------------+
+                             |
+                    Candidate Act A
+                             |
+                       authorization
+                             |
+                         Finality
+</artwork>
+        </figure>
+        <t>and independently:</t>
+        <figure>
+          <artwork type="text">
+same trust context
+          |
+          +------------------+
+                             |
+                    Candidate Act B
+                             |
+                    different decision
+</artwork>
+        </figure>
+        <t>There is no requirement to repeat hardware attestation for every operation.</t>
+        <t><strong>RATS relevance:</strong> AR4SI can provide reusable trustworthiness inputs to the execution-finality validator.  Current AR4SI work explicitly focuses on information provided to Relying Parties for decisions about secure interaction.</t>
+        <t><strong>WIMSE relevance:</strong> the authenticated workload associated with the secure interaction can be identified using WIMSE credentials while individual operations receive independent authorization.</t>
+      </section>
+
+      <section anchor="faq-3" numbered="false">
+        <name>FAQ 3.  How does this interact with composite CPU, CVM, GPU, and accelerator attestation?</name>
+        <t><strong>Question</strong></t>
+        <t>A confidential workload may already produce composite attestation covering a CPU TEE, confidential VM, and confidential GPU.  Why is Candidate Act validation separate?</t>
+        <t><strong>Answer</strong></t>
+        <t>Composite attestation and Candidate Act validation operate at different semantic layers.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+Intel TDX Evidence
+       +
+Confidential GPU Evidence
+       |
+       v
+Composite appraisal
+       |
+       v
+Attestation Result
+</artwork>
+        </figure>
+        <t>can establish properties of the combined confidential-computing environment.</t>
+        <t>That result becomes an input to:</t>
+        <figure>
+          <artwork type="text">
+Attestation Result
+       +
+Candidate Act
+       +
+workload identity
+       +
+authorization context
+       |
+       v
+Execution-Finality Decision
+</artwork>
+        </figure>
+        <t>A stable composite appraisal can be reused while individual operations receive different authorization outcomes.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+Act 1 = read object X
+Act 2 = modify object X
+Act 3 = delete object X
+Act 4 = transmit object X to workload Y
+</artwork>
+        </figure>
+        <t>The attested environment can remain identical.</t>
+        <t>The authorization decision need not.</t>
+        <t>The referenced TDX+C-GPU Attestation Result profile <xref target="TDX-CGPU-EAR"/> illustrates a composite appraisal input that could be consumed by the proposed authorization flow.</t>
+        <t>The architecture also accommodates multiple Verifiers:</t>
+        <figure>
+          <artwork type="text">
+CPU Verifier --------\
+                      \
+GPU Verifier ----------&gt; composed trust result
+                      /
+DPU Verifier --------/
+                     |
+                     v
+              Candidate Act
+                     |
+                 finality
+</artwork>
+        </figure>
+        <t>Current RATS work is separately examining multiple-Verifier topologies.</t>
+        <t><strong>RATS relevance:</strong> composite and multi-Verifier Attestation Results can feed finality validation.</t>
+        <t><strong>WIMSE relevance:</strong> after platform trust is established, WIMSE identifies the software workload operating inside that trusted environment.</t>
+      </section>
+      <section anchor="faq-4" numbered="false">
+        <name>FAQ 4.  Does this require changes to accelerator hardware or instruction sets?</name>
+        <t><strong>Question</strong></t>
+        <t>Would an accelerator implementation need to be redesigned to support this architecture?</t>
+        <t><strong>Answer</strong></t>
+        <t>No.  The proposed enforcement occurs after an application has formed a consequence-bearing operation; it does not alter tensor execution, instruction sets, matrix engines, or accelerator scheduling.</t>
+        <t>The architecture separates:</t>
+        <figure>
+          <artwork type="text">
+COMPUTATION
+
+tensor operation
+matrix multiplication
+inference
+model execution
+        |
+        v
+Candidate Act
+</artwork>
+        </figure>
+        <t>from:</t>
+        <figure>
+          <artwork type="text">
+AUTHORITY
+
+Candidate Act
+     |
+validation
+     |
+Finality Sink
+     |
+external effect
+</artwork>
+        </figure>
+        <t>A deployment could therefore use an existing confidential accelerator unchanged.</t>
+        <t>The enforcement component might instead reside in:</t>
+        <figure>
+          <artwork type="text">
+confidential VM
+DPU
+SmartNIC
+host TEE
+kernel
+hypervisor
+API gateway
+service mesh
+destination service
+</artwork>
+        </figure>
+        <t>Chip vendors could nevertheless integrate the function more deeply if desired.</t>
+        <t>For example, a future DPU could provide a protected finality-verification primitive, or an accelerator runtime could expose an attested binding between a model workload and Candidate Act digest.</t>
+        <t>Those are implementation optimizations, not architectural requirements.</t>
+        <t><strong>RATS relevance:</strong> existing accelerator Evidence remains reusable.</t>
+        <t><strong>WIMSE relevance:</strong> workload-level identity remains independent of accelerator instruction-set design.</t>
+      </section>
+
+      <section anchor="faq-5" numbered="false">
+        <name>FAQ 5.  Isn't WIMSE workload identity already enough to authorize the operation?</name>
+        <t><strong>Question</strong></t>
+        <t>If a workload possesses a valid WIMSE Workload Identity Token or Workload Identity Certificate, why does it need another authorization step?</t>
+        <t><strong>Answer</strong></t>
+        <t>Because identity and authority are distinct.</t>
+        <t>The current WIMSE architecture itself makes this distinction explicitly: authenticating a workload establishes control of credentials but is not sufficient by itself to determine whether that workload may access a resource or perform an action.  The authorization decision additionally considers the operation, resource, policy, and relevant security context.</t>
+        <t>Execution finality extends that logic to the effectuation boundary.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+WIT:
+
+workload = ai-agent-47
+</artwork>
+        </figure>
+        <t>can authenticate the workload.</t>
+        <t>But the following operations are not equivalent:</t>
+        <figure>
+          <artwork type="text">
+read(database-A)
+</artwork>
+        </figure>
+        <figure>
+          <artwork type="text">
+delete(database-A)
+</artwork>
+        </figure>
+        <figure>
+          <artwork type="text">
+copy(database-A, external-domain-B)
+</artwork>
+        </figure>
+        <t>The proposed composition becomes:</t>
+        <figure>
+          <artwork type="text">
+WIMSE identity
+       +
+Candidate Act
+       +
+RATS trust state
+       +
+policy
+       |
+       v
+act-specific decision
+       |
+       v
+Finality Sink
+</artwork>
+        </figure>
+        <t>Therefore, WIMSE answers primarily: which workload is presenting this credential, and can it prove possession?  While execution finality asks: may this exact consequential operation become effective at this boundary under the current identity, trust, policy and context?</t>
+        <t><strong>RATS relevance:</strong> supplies trustworthy execution-state information.</t>
+        <t><strong>WIMSE relevance:</strong> supplies workload identity and proof-of-possession foundations.</t>
+      </section>
+
+      <section anchor="faq-6" numbered="false">
+        <name>FAQ 6.  Why isn't an OAuth access token or down-scoped transaction token sufficient?</name>
+        <t><strong>Question</strong></t>
+        <t>Why not mint a narrowly scoped OAuth token after the concrete request has been generated?</t>
+        <t><strong>Answer</strong></t>
+        <t>That can be a valid implementation mechanism.</t>
+        <t>This architecture should not claim otherwise.</t>
+        <t>An OAuth authorization server could issue a sufficiently narrow per-operation credential containing or referencing:</t>
+        <figure>
+          <artwork type="text">
+actor
+resource
+operation
+arguments
+audience
+expiration
+transaction identifier
+</artwork>
+        </figure>
+        <t>If the Resource Server verifies it against the exact operation, then such a token could implement part of execution finality.</t>
+        <t>The architectural question is broader: what invariant must be preserved regardless of the authorization artifact chosen?</t>
+        <t>The proposed invariant is:</t>
+        <figure>
+          <artwork type="text">
+Candidate Act
+      |
+      | remains non-effective
+      v
+act-bound authorization
+      |
+      v
+mandatory verification
+at consequence boundary
+      |
+      v
+external effect
+</artwork>
+        </figure>
+        <t>Therefore an OAuth Transaction Token, capability, COSE object, HTTP Message Signature, WIMSE proof token, or another mechanism may become a concrete encoding.</t>
+        <t>The document intentionally separates the finality invariant from the credential format.</t>
+        <t><strong>RATS relevance:</strong> attestation state can contribute to the authorization inputs used when minting or validating such an artifact.</t>
+        <t><strong>WIMSE relevance:</strong> WIMSE workload credentials can identify the actor requesting the transaction-specific authority.</t>
+      </section>
+
+      <section anchor="faq-7" numbered="false">
+        <name>FAQ 7.  Isn't the Execution Handle just another bearer token?</name>
+        <t><strong>Question</strong></t>
+        <t>If the validator returns an Execution Handle, an attacker could steal it and replay it.  How is this different from an ordinary bearer credential?</t>
+        <t><strong>Answer</strong></t>
+        <t>The Execution Handle should not be defined as unrestricted bearer authority.</t>
+        <t>It should be bound to security-relevant context.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+EH = Sign {
+    act_digest,
+    workload_id,
+    target,
+    audience,
+    transaction_id,
+    nonce,
+    expiry,
+    policy_context,
+    proof_key
+}
+</artwork>
+        </figure>
+        <t>A stolen EH should therefore fail when presented with:</t>
+        <figure>
+          <artwork type="text">
+different Candidate Act
+different workload
+different target
+different proof key
+different transaction
+expired freshness state
+</artwork>
+        </figure>
+        <t>Where possible, implementations should use proof-of-possession rather than possession alone.</t>
+        <t>Conceptually, possession of the EH does not equal authority.</t>
+        <t>Instead:</t>
+        <figure>
+          <artwork type="text">
+EH
++
+correct Candidate Act
++
+correct presenter
++
+correct target
++
+fresh context
+       =
+usable execution authority
+</artwork>
+        </figure>
+        <t>An implementation may omit a separate Execution Handle entirely and have the Finality Sink query the validator directly.</t>
+        <t>The architecture depends on the binding, not on the existence of a new token.</t>
+        <t><strong>RATS relevance:</strong> attested keys or key-binding mechanisms can strengthen the identity of the presenter.</t>
+        <t><strong>WIMSE relevance:</strong> WIMSE credentials already bind workload identity to cryptographic key material and therefore provide useful proof-of-possession foundations.</t>
+      </section>
+      <section anchor="faq-8" numbered="false">
+        <name>FAQ 8.  Who creates the Candidate Act, and how is it canonicalized?</name>
+        <t><strong>Question</strong></t>
+        <t>If the AI runtime creates one representation but the destination interprets another representation, how can the authorization binding be trusted?</t>
+        <t><strong>Answer</strong></t>
+        <t>This is one of the most important protocol-design problems.</t>
+        <t>The authorization must bind to the representation that determines the protected consequence.</t>
+        <t>For an HTTP operation, security-relevant material might include:</t>
+        <figure>
+          <artwork type="text">
+method
+authority
+path
+selected headers
+body
+target resource
+</artwork>
+        </figure>
+        <t>For an RPC:</t>
+        <figure>
+          <artwork type="text">
+service
+method
+arguments
+target
+</artwork>
+        </figure>
+        <t>For a cloud-control operation:</t>
+        <figure>
+          <artwork type="text">
+operation
+resource ID
+tenant
+region
+parameters
+</artwork>
+        </figure>
+        <t>The document should therefore require an application-specific Candidate Act Canonicalization Profile.</t>
+        <t>A generic formula might be:</t>
+        <figure>
+          <artwork type="text">
+act_digest =
+HASH(
+    profile_identifier ||
+    canonical_candidate_act
+)
+</artwork>
+        </figure>
+        <t>The profile identifier prevents the same byte sequence from being interpreted under two incompatible canonicalization rules.</t>
+        <t>Any security-relevant field that is interpreted by the Finality Sink must either:</t>
+        <ol>
+          <li><t>be contained in the canonical Candidate Act; or</t></li>
+          <li><t>be independently constrained by the authorization context.</t></li>
+        </ol>
+        <t>Otherwise parameter substitution is possible.</t>
+        <t>The Finality Sink is ultimately authoritative regarding which canonical representation corresponds to the consequence it performs.</t>
+        <t><strong>RATS relevance:</strong> RATS does not need to define HTTP, RPC, payment, or cloud-operation canonicalization.</t>
+        <t><strong>WIMSE relevance:</strong> WIMSE identifies the initiating workload; application profiles define the operation being authorized.</t>
+      </section>
+
+      <section anchor="faq-9" numbered="false">
+        <name>FAQ 9.  What technically makes a Candidate Act "non-effective"?</name>
+        <t><strong>Question</strong></t>
+        <t>Is "non-effective state" merely policy terminology?  What prevents a compromised workload from bypassing validation and directly executing the operation?</t>
+        <t><strong>Answer</strong></t>
+        <t>The non-effective state must be enforced by architecture, not simply declared in metadata.</t>
+        <t>For a protected consequence, every path capable of producing that consequence must pass a trusted enforcement boundary.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+AI workload
+     |
+Candidate Act
+     |
+     X--------------------&gt; protected service
+     |                       direct path blocked
+     |
+     v
+Finality Sink
+     |
+     v
+protected service
+</artwork>
+        </figure>
+        <t>Possible mechanisms include:</t>
+        <figure>
+          <artwork type="text">
+DPU-enforced egress
+kernel mediation
+hypervisor mediation
+API-gateway enforcement
+service-mesh enforcement
+database commit enforcement
+destination-side verification
+capability-required API
+TEE-mediated system call
+</artwork>
+        </figure>
+        <t>If an attacker can bypass the Finality Sink and cause the same protected consequence through another path, then technical non-effectiveness has not been achieved.</t>
+        <t>That should be stated explicitly as a security requirement: for a consequence claimed to be protected by execution finality, there <bcp14>MUST NOT</bcp14> exist an unmediated effectuation path available to the protected workload.</t>
+        <t>This is the strongest distinction between an execution-finality architecture and a system that merely generates audit evidence.</t>
+        <t><strong>RATS relevance:</strong> RATS establishes trust-related facts; it does not automatically create this topology.</t>
+        <t><strong>WIMSE relevance:</strong> WIMSE can authenticate workloads traversing the enforced path, but workload identity alone does not remove bypass paths.</t>
+      </section>
+
+      <section anchor="faq-10" numbered="false">
+        <name>FAQ 10.  How does the architecture prevent TOCTOU between authorization and execution?</name>
+        <t><strong>Question</strong></t>
+        <t>What prevents the operation from changing after it is validated but before the Finality Sink executes it?</t>
+        <t><strong>Answer</strong></t>
+        <t>The Finality Sink must verify the same security-relevant Candidate Act that was authorized.</t>
+        <t>Suppose:</t>
+        <figure>
+          <artwork type="text">
+A = canonical Candidate Act
+
+H = HASH(A)
+</artwork>
+        </figure>
+        <t>The validator authorizes H.</t>
+        <t>At finality:</t>
+        <figure>
+          <artwork type="text">
+H' = HASH(received Candidate Act)
+</artwork>
+        </figure>
+        <t>The Sink requires:</t>
+        <figure>
+          <artwork type="text">
+H' == H
+</artwork>
+        </figure>
+        <t>together with verification of the authorization evidence.</t>
+        <t>Therefore:</t>
+        <figure>
+          <artwork type="text">
+validation
+      |
+      v
+Act A
+      |
+ attacker changes amount
+      |
+      v
+Act A'
+      |
+HASH(A') != authorized HASH(A)
+      |
+      v
+DENY
+</artwork>
+        </figure>
+        <t>For state-dependent operations, binding only the request may still be insufficient.</t>
+        <t>The decision may need to include:</t>
+        <figure>
+          <artwork type="text">
+resource version
+transaction epoch
+policy version
+expected state
+sequence number
+</artwork>
+        </figure>
+        <t>or the Finality Sink may need to re-evaluate those conditions atomically with effectuation.</t>
+        <t>The strongest implementation is therefore: verify, consume authorization, and effectuate within one trusted transactional boundary.</t>
+        <t><strong>RATS relevance:</strong> freshness and Attestation Result applicability remain relevant but are not substitutes for operation-level TOCTOU protection.</t>
+        <t><strong>WIMSE relevance:</strong> workload identity remains bound to the operation but does not itself guarantee immutability of operation parameters.</t>
+      </section>
+
+      <section anchor="faq-11" numbered="false">
+        <name>FAQ 11.  How are replay, duplication, and retry handled at hyperscale?</name>
+        <t><strong>Question</strong></t>
+        <t>Distributed systems legitimately retry requests.  How can replay protection distinguish malicious replay from safe retry?</t>
+        <t><strong>Answer</strong></t>
+        <t>Replay resistance should not simply mean "reject the same bytes twice."</t>
+        <t>The Finality Sink can use an idempotency or transaction model.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+transaction_id = 7F29...
+act_digest     = H(A)
+max_effects    = 1
+expiry         = T
+</artwork>
+        </figure>
+        <t>The Sink maintains:</t>
+        <figure>
+          <artwork type="text">
+(transaction_id, act_digest) -&gt; state
+</artwork>
+        </figure>
+        <t>with states such as:</t>
+        <figure>
+          <artwork type="text">
+UNUSED
+IN_PROGRESS
+COMMITTED
+FAILED_RETRYABLE
+EXPIRED
+</artwork>
+        </figure>
+        <t>A network retry of a committed transaction can return the existing result without repeating the consequence.</t>
+        <t>A different Candidate Act presented with the same transaction identifier is rejected.</t>
+        <t>For operations legitimately allowing multiple effects, the authorization can specify:</t>
+        <figure>
+          <artwork type="text">
+max_uses
+sequence range
+rate limit
+resource set
+</artwork>
+        </figure>
+        <t>The exact semantics remain application-specific.</t>
+        <t><strong>RATS relevance:</strong> RATS already treats freshness and result lifetime as important properties.  RFC 9334 distinguishes generation, appraisal, operation, and expiry events.</t>
+        <t><strong>WIMSE relevance:</strong> workload authentication identifies who is retrying; finality state determines whether the consequence may occur again.</t>
+      </section>
+      <section anchor="faq-12" numbered="false">
+        <name>FAQ 12.  Would per-act verification destroy GPU or hyperscaler performance?</name>
+        <t><strong>Question</strong></t>
+        <t>Large inference clusters can issue enormous numbers of operations.  Does execution finality place remote attestation or expensive cryptography on every request?</t>
+        <t><strong>Answer</strong></t>
+        <t>No.</t>
+        <t>The architecture should explicitly separate the cold path from the hot path.</t>
+        <figure>
+          <artwork type="text">
+COLD PATH
+
+CPU/GPU/DPU Evidence
+        |
+        v
+attestation verification
+        |
+        v
+Attestation Result
+        |
+        v
+cached trust context
+</artwork>
+        </figure>
+        <t>Then:</t>
+        <figure>
+          <artwork type="text">
+HOT PATH
+
+Candidate Act
+      |
+digest
+      |
+policy/context lookup
+      |
+compact authorization
+      |
+Finality Sink verification
+</artwork>
+        </figure>
+        <t>Expensive endorsement retrieval, certificate-chain processing, reference-value evaluation, and composite attestation need not be performed for every Candidate Act.</t>
+        <t>Furthermore, not every AI output requires execution finality.</t>
+        <t>A deployment might classify:</t>
+        <figure>
+          <artwork type="text">
+ordinary inference output       -&gt; no finality processing
+read-only query                 -&gt; lightweight policy
+financial transfer              -&gt; finality protected
+production deployment           -&gt; finality protected
+network reconfiguration         -&gt; finality protected
+external message publication    -&gt; finality protected
+</artwork>
+        </figure>
+        <t>A DPU, SmartNIC, local gateway, or destination endpoint could verify compact proofs locally without another network round trip.</t>
+        <t>Thus execution finality is intended to operate at semantic consequence boundaries, not tensor-operation, packet, or memory-operation granularity.</t>
+        <t><strong>RATS relevance:</strong> reusable Attestation Results make cold-path/hot-path separation possible.</t>
+        <t><strong>WIMSE relevance:</strong> short-lived workload credentials and proof-of-possession can also be reused across many individual authorized operations.</t>
+      </section>
+
+      <section anchor="faq-13" numbered="false">
+        <name>FAQ 13.  How does this work across multi-agent and multi-workload chains?</name>
+        <t><strong>Question</strong></t>
+        <t>In an agentic workflow, one workload may plan, another may transform arguments, another may broker the tool call, and a fourth may execute it.  Which workload is actually authorized?</t>
+        <t><strong>Answer</strong></t>
+        <t>The architecture should not require the initial workload identity to be treated as authority for all descendants.</t>
+        <t>Consider:</t>
+        <figure>
+          <artwork type="text">
+Agent A
+   |
+Planner B
+   |
+Tool Broker C
+   |
+Execution Service D
+</artwork>
+        </figure>
+        <t>Several identities can contribute to the decision:</t>
+        <figure>
+          <artwork type="text">
+initiating principal
+delegated subject
+Agent A workload identity
+Planner B identity
+Broker C identity
+Execution Service identity
+</artwork>
+        </figure>
+        <t>However, finality is associated with the concrete operation presented at the consequence boundary.</t>
+        <t>For example:</t>
+        <figure>
+          <artwork type="text">
+Agent A:
+"pay approved invoice"
+
+Planner B:
+selects supplier
+
+Broker C:
+constructs:
+amount = 8,430
+currency = EUR
+destination = account-X
+
+Finality Sink:
+authorizes the concrete transaction
+</artwork>
+        </figure>
+        <t>The final authorization can carry or reference provenance from earlier workloads while remaining bound to the final Candidate Act.</t>
+        <t>This avoids treating transitive authentication as transitive unlimited authority.</t>
+        <t><strong>RATS relevance:</strong> different components in the chain may themselves have separate attestation states or Verifiers.</t>
+        <t><strong>WIMSE relevance:</strong> this is strongly aligned with WIMSE because the working group addresses workload identity in multi-service and multi-system environments.  Its current architecture is specifically concerned with workload-to-workload authentication and authorization in distributed environments.</t>
+        <t>Execution finality provides a possible terminal enforcement semantic:</t>
+        <figure>
+          <artwork type="text">
+authenticated workload chain
+           |
+           v
+concrete Candidate Act
+           |
+           v
+act-specific authority
+           |
+           v
+Finality Sink
+</artwork>
+        </figure>
+      </section>
+
+      <section anchor="faq-14" numbered="false">
+        <name>FAQ 14.  How is this different from current WIMSE authorization-evidence/Permit work?</name>
+        <t><strong>Question</strong></t>
+        <t>There is already an individual Internet-Draft describing Signed Authorization-Evidence Records for WIMSE-authorized AI agent actions.  It cryptographically commits to canonical request bytes before dispatch.  Isn't that the same mechanism?</t>
+        <t><strong>Answer</strong></t>
+        <t>This is a serious overlap question and should be addressed explicitly.</t>
+        <t>The current authorization-evidence draft defines a signed Permit recording a pre-execution authorization decision, binds it to canonical request bytes, and uses a Closure Record to bind to the dispatched request digest.  The current revision also describes composition with OAuth, HTTP Message Signatures, WIMSE identity, and transaction-token context.</t>
+        <t>Therefore the proposed execution-finality draft should not claim novelty merely because it authorizes before dispatch, hashes the concrete request, or creates signed authorization evidence.</t>
+        <t>Those mechanisms are already being discussed.</t>
+        <t>The narrower proposed distinction is the architectural enforcement property: Permit/evidence exists does not equal external consequence is technically dependent on verification of that evidence.</t>
+        <t>Execution finality requires identifying an effectuation boundary and making successful verification load-bearing for the consequence:</t>
+        <figure>
+          <artwork type="text">
+Candidate Act
+      |
+authorization
+      |
+PVE / Permit / other artifact
+      |
+      v
+FINALITY SINK
+      |
+ verification required
+      |
+      v
+External Effect
+</artwork>
+        </figure>
+        <t>If the destination may execute the request without verifying the required act-bound authority, the deployment does not satisfy the proposed execution-finality property.</t>
+        <t>Accordingly, the existing WIMSE Permit could potentially be used as one PVE representation rather than treated as a competing mechanism.</t>
+        <t>The proposed architecture should therefore ask whether existing WIMSE authorization evidence can become a required execution dependency at the destination or infrastructure effectuation boundary.</t>
+        <t>That is a substantially more constructive standards relationship.</t>
+        <t><strong>RATS relevance:</strong> attestation context can become one input into issuance or validation of the Permit/finality artifact.</t>
+        <t><strong>WIMSE relevance:</strong> extremely direct; WIMSE credentials, workload identity, and existing authorization-evidence work can potentially provide several protocol components rather than being reinvented.</t>
+      </section>
+
+      <section anchor="faq-15" numbered="false">
+        <name>FAQ 15.  How is this different from current RATS Action Evidence composition work?</name>
+        <t><strong>Question</strong></t>
+        <t>RATS already has an individual draft on composing application-layer Action Evidence Packages with platform attestation.  Why isn't Candidate Act plus attestation just the same idea?</t>
+        <t><strong>Answer</strong></t>
+        <t>This is the other comparison the document should confront directly.</t>
+        <t>The current RATS AEP composition work describes cryptographically binding application-layer action records and outcomes to platform Evidence so that Verifiers and Relying Parties can reason jointly about platform state and what an automated system reports it did.</t>
+        <t>It includes action digests, outcome digests, authority references, freshness considerations, and substitution tests.</t>
+        <t>That means the proposed draft should not position action evidence plus remote attestation as a new concept by itself.</t>
+        <t>The strongest distinction is temporal and architectural.</t>
+        <t>Action evidence can answer questions such as: what action was reported, under what authority, on what attested platform, and what outcome was recorded?</t>
+        <t>Execution finality asks: could the protected external effect have happened without successful verification of the required authorization binding?</t>
+        <t>This produces two different security properties.</t>
+        <t>Evidence property:</t>
+        <figure>
+          <artwork type="text">
+Action
+   |
+   v
+record / digest / attestation
+   |
+   v
+verifiable evidence
+</artwork>
+        </figure>
+        <t>Execution-finality property:</t>
+        <figure>
+          <artwork type="text">
+Candidate Act
+     |
+ NON-EFFECTIVE
+     |
+     v
+authorization + validation
+     |
+     v
+Finality Sink
+     |
+mandatory verification
+     |
+     v
+EFFECT
+</artwork>
+        </figure>
+        <t>The current AEP draft itself notes that a reported outcome remains an application-layer claim unless independently observable effect evidence exists, and that platform binding does not by itself prove the truth of the external effect.</t>
+        <t>This gives the execution-finality proposal a useful boundary: evidence about an action is not necessarily the same security property as technical dependency of the action upon authorization.</t>
+        <t>The two could also be composed:</t>
+        <figure>
+          <artwork type="text">
+                  RATS
+                   |
+          platform Evidence
+                   |
+          Attestation Result
+                   |
+                   v
+              Candidate Act
+                   |
+               validation
+                   |
+                   v
+              Finality Sink
+                   |
+                   v
+             External Effect
+                   |
+                   v
+                  AEP
+                   |
+          auditable evidence
+</artwork>
+        </figure>
+        <t>This is potentially stronger than trying to replace the AEP work.</t>
+        <t><strong>RATS relevance:</strong> RATS establishes and composes trustworthy evidence about execution environments and increasingly about richer attestation contexts.</t>
+        <t><strong>WIMSE relevance:</strong> WIMSE identifies and authenticates the workloads participating in the action chain.</t>
+        <t><strong>Execution-finality contribution:</strong> defines the protected transition from a proposed operation to an externally effective operation and requires the authorization state to be load-bearing at that transition.</t>
+      </section>
+
+      <section anchor="faq-summary" numbered="false">
+        <name>Summary: Relationship Between RATS, WIMSE, and Execution Finality</name>
+        <t>The three layers can be summarized as follows:</t>
+        <figure>
+          <artwork type="text">
++--------------------------------------------------+
+|                    RATS                          |
+|                                                  |
+| What can be established about the platform,      |
+| environment, component, or Attester?             |
+|                                                  |
+| Evidence -&gt; Verifier -&gt; Attestation Result       |
++--------------------------+-----------------------+
+                           |
+                           v
++--------------------------------------------------+
+|                   WIMSE                          |
+|                                                  |
+| Which workload is participating?                 |
+| Can it prove possession of its identity key?     |
+| What trust domain does it belong to?             |
+|                                                  |
+| Workload Identifier                              |
+| WIT / WIC                                        |
+| workload-to-workload authentication              |
++--------------------------+-----------------------+
+                           |
+                           v
++--------------------------------------------------+
+|             EXECUTION FINALITY                   |
+|                                                  |
+| What exact operation is proposed?                |
+| Is it authorized under the current identity,     |
+| attestation, policy and context?                 |
+|                                                  |
+| Can it acquire external effect without passing   |
+| the designated enforcement boundary?             |
+|                                                  |
+| Candidate Act                                    |
+|      |                                           |
+|      v                                           |
+| act-bound validation                             |
+|      |                                           |
+|      v                                           |
+| Finality Sink                                    |
+|      |                                           |
+|      v                                           |
+| External Effect                                  |
++--------------------------------------------------+
+</artwork>
+        </figure>
+        <t>The architecture therefore does not propose RATS versus execution finality, or WIMSE versus execution finality.</t>
+        <t>It proposes the possible composition:</t>
+        <figure>
+          <artwork type="text">
+RATS
+"Can this execution context be trusted?"
+       |
+       v
+WIMSE
+"Which workload is acting?"
+       |
+       v
+ACT-SPECIFIC AUTHORIZATION
+"Is this exact operation permitted?"
+       |
+       v
+EXECUTION FINALITY
+"Has the required authorization become
+technically load-bearing before consequence?"
+       |
+       v
+EXTERNAL EFFECT
+</artwork>
+        </figure>
+        <t>The core architectural invariant is end-to-end correspondence between the operation evaluated by the authorization function and the operation presented for effectuation.  Environment appraisal and workload authentication are inputs to that decision, not substitutes for the act-specific decision.</t>
+        <t>For protected consequence classes, the Candidate Act remains non-effective until evidence authorizing its security-relevant content is verified at the boundary where the protected effect would be committed.</t>
+      </section>
+    </section>
+  </back>
+</rfc>

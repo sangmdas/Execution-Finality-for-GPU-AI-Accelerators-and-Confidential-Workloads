@@ -1,0 +1,8 @@
+platform=Linux-6.18.35-x86_64-with-glibc2.39
+machine=x86_64 processor=x86_64
+python=3.12.13 cryptography=46.0.0
+algorithm=Ed25519 hash=SHA-256 replay_store=not-included body_bytes=58 warmup=1000 samples=10000 concurrency=1
+cold-path EAT appraisal: n=10000 median=139.79us p95=198.08us p99=316.69us
+CandidateAct construction: n=10000 median=1.51us p95=1.58us p99=2.18us
+handle issuance: n=10000 median=50.40us p95=66.60us p99=118.62us
+handle verification: n=10000 median=139.37us p95=198.71us p99=334.08us
